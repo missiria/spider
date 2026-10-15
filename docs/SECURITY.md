@@ -8,7 +8,7 @@ review when multi-tenant workspaces (Sprint 1) or OAuth (Sprint 2) land.
 | Item | State |
 |---|---|
 | Credentials | bcrypt (cost 10) password hashes; `users.password_hash` never leaves the API (`toPublic()`), login replies carry only id/email/name/role. |
-| Login brute force | `POST /auth/login` throttled 10 / minute / **client IP** plus a **per-account** lock (10 failures / 15 min → 429) so a distributed attacker cannot bypass the IP limit. The client IP comes from the socket, or from `x-spider-client-ip` only when the request carries the shared `INTERNAL_PROXY_SECRET` (the Next server derives it from `cf-connecting-ip` or the right-most `X-Forwarded-For` entry appended by our own proxy — never the raw header). Failures logged with email + IP. |
+| Login brute force | `POST /auth/login` throttled 10 / minute / **client IP** plus a **per-account** lock (10 failures / 15 min → 429) so a distributed attacker cannot bypass the IP limit. The client IP comes from the socket, or from `x-spider-client-ip` only when the request carries the shared `INTERNAL_PROXY_SECRET`; the Next server fills it exclusively from `X-Real-IP`, which our nginx sets from `$remote_addr` on every request (client-supplied `X-Real-IP`, `CF-Connecting-IP`, `X-Spider-*` headers are overwritten/cleared at nginx) and nginx resolves the visitor behind Cloudflare with `set_real_ip_from <CF ranges>` + `real_ip_header CF-Connecting-IP` (`deploy/nginx/spider.conf`). The per-account lock is keyed on (account, IP) so an attacker cannot lock a victim out from elsewhere; no state is kept for unknown accounts; entries expire and the map is bounded. Failures logged with email + IP. |
 | Token | JWT HS256, `JWT_SECRET`, 24 h expiry. **Production refuses to start** with a placeholder or < 32-char secret (`assertProductionConfig`). |
 | Browser session | The Next route `/auth/session` performs the login **server-side** (credentials → API, client IP forwarded for the throttle) and stores the JWT in an **httpOnly, SameSite=Lax, Secure (https)** cookie `spider_session`; the token never reaches browser JavaScript (verified by E2E). The route rejects cross-site requests (`Sec-Fetch-Site`, `Origin`) and non-JSON bodies, so a third-party page cannot log a victim into an attacker account (login CSRF / session fixation). The API accepts the cookie via an extractor; the bearer header still works for scripts. Sign-out deletes the cookie. |
 | CSRF | Cookie is SameSite=Lax and the API only accepts JSON bodies through the validation pipe; cross-site form posts cannot carry `application/json`. Revisit if any endpoint ever accepts form encoding. |
@@ -54,9 +54,12 @@ review when multi-tenant workspaces (Sprint 1) or OAuth (Sprint 2) land.
   HMACs — reference verifiers in `docs/WEBHOOKS.md`. Payloads carry only the workspace's own
   data; a webhook is scoped to its workspace.
 - Webhook URLs: https only in production, no credentials in the URL; the hostname is **resolved
-  with DNS at creation and again at every delivery**, every returned address must be public
-  (loopback, RFC 1918, link-local, CGNAT, multicast, IPv6 ULA / link-local / IPv4-mapped
-  refused) and the validated address is **pinned** for the connection (undici Agent with a
+  with DNS at creation and again at every delivery**, every returned address must be public —
+  addresses are parsed to bytes; IPv4 private/loopback/link-local/CGNAT/test/reserved, and IPv6
+  loopback, ULA, link-local, site-local, multicast, documentation, Teredo, plus every
+  IPv4-embedding form (mapped `::ffff:`, SIIT, compat `::/96`, NAT64 `64:ff9b::/96` and
+  `64:ff9b:1::/48`, 6to4 `2002::/16`) are classified by the embedded address; anything outside
+  global unicast `2000::/3` is refused and the validated address is **pinned** for the connection (undici Agent with a
   fixed lookup, SNI kept on the hostname) so DNS rebinding cannot redirect the request;
   10 s timeout, redirects not followed, 4 attempts with backoff, admin-only management.
 - SMTP: certificate verification is **on by default** (`SMTP_REJECT_UNAUTHORIZED=true`); set

@@ -15,7 +15,10 @@ terminates TLS; nginx on the VPS serves HTTP on :80 with `server_name spider.mis
    plus a dedicated user with rights on that database only.
 3. `npm ci && npm run build && npm run db:migrate`
 4. `pm2 start ecosystem.config.cjs && pm2 save` → `spider-api` (:8090) and `spider-web` (:8091).
-5. nginx: symlink `deploy/nginx/spider.conf` into `/etc/nginx/sites-enabled/`, `nginx -t`, reload.
+5. nginx: symlink `deploy/nginx/spider.conf` into `/etc/nginx/sites-enabled/`, `nginx -t`, reload. The
+   conf carries Cloudflare's `set_real_ip_from` ranges (refresh them from cloudflare.com/ips when they
+   change) so rate limits and login logs see the visitor's IP; firewall :80/:443 to Cloudflare ranges
+   only, otherwise a direct hit could spoof `CF-Connecting-IP`.
 6. Register `spider` in the global `deploy <app>` batch (git pull → `npm ci` → build →
    `db:migrate` → `pm2 reload ecosystem.config.cjs`). GitHub secrets for
    `.github/workflows/deploy.yml`: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT`.

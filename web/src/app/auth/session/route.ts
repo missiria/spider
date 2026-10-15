@@ -40,16 +40,17 @@ function rejectCrossSite(req: NextRequest): NextResponse | null {
   return null;
 }
 
+/**
+ * Only `X-Real-IP` is trusted: our nginx sets it from $remote_addr on every request (overwriting
+ * anything the client sent) and is configured with Cloudflare's ranges as `set_real_ip_from`
+ * + `real_ip_header CF-Connecting-IP`, so $remote_addr is the visitor even behind the proxy.
+ * `cf-connecting-ip` / `x-forwarded-for` straight from the request are never used: a client
+ * can set them. Without nginx (local dev) there is no header and the API falls back to the
+ * socket address.
+ */
 function trustedClientIp(req: NextRequest): string {
-  const cf = req.headers.get("cf-connecting-ip");
-  if (cf) return cf.trim().slice(0, 64);
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) {
-    const parts = xff.split(",").map((p) => p.trim()).filter(Boolean);
-    // the right-most entry is the one our own proxy appended
-    return (parts[parts.length - 1] ?? "").slice(0, 64);
-  }
-  return "";
+  const real = req.headers.get("x-real-ip");
+  return real ? real.trim().slice(0, 64) : "";
 }
 
 /**

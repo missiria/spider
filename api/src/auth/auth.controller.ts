@@ -58,7 +58,7 @@ export class AuthController {
   @HttpCode(200)
   async login(@Body() body: LoginDto, @ClientIp() ip: string) {
     try {
-      const res = await this.auth.login(body.email, body.password);
+      const res = await this.auth.login(body.email, body.password, ip);
       this.logger.log(`login ok user=${res.user.id} ip=${ip}`);
       return res;
     } catch (err) {
