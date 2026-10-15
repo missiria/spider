@@ -62,9 +62,16 @@ sync-health summary.
 | Google quota | 429s appear as retried warnings in `pm2 logs spider-api`; persistent 429 → raise `GSC_PACE_MS` |
 | Logins | API log lines `login ok user=… ip=…` / `login failed email=… ip=…` |
 | Scans | `scan: N properties, N findings, N new, N refreshed` daily at 07:30 |
+| Reports / alerts / webhooks | Reports page: schedule `last_status` + deliveries; Settings → Alerts recent events; Settings → Webhooks deliveries (status, HTTP code, attempts); API log lines `report schedules: …`, `alerts: …`, `webhooks: …` |
 
 Schedules (server time): access checks for pending properties every 10 min; incremental sync
-06:10; opportunity scan 07:30.
+06:10; opportunity scan 07:30; report schedules + alert evaluation hourly at :05; webhook
+retries every 5 min (4 attempts: now, +5 min, +30 min, +2 h).
+
+**Email**: set `SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM`, `MAIL_FROM_NAME` in `deploy/env/api.env`
+(same relay as shark-app). Without `SMTP_HOST` the API starts but records every scheduled report
+and email alert as **skipped** (visible on Reports / Settings → Alerts), never silently dropped.
+Set `APP_PUBLIC_URL=https://spider.missiria.dev` so links in emails and webhook payloads resolve.
 
 ## Support procedures
 

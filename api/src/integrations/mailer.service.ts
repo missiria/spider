@@ -1,0 +1,78 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as nodemailer from 'nodemailer';
+
+export interface MailAttachment {
+  filename: string;
+  content: Buffer | string;
+  contentType: string;
+}
+
+/**
+ * SMTP via SMTP_* env (same keys as shark-app). Without SMTP_HOST, mails are not sent:
+ * `send()` returns { skipped: true } so callers can record "skipped" instead of failing.
+ */
+@Injectable()
+export class MailerService {
+  private readonly logger = new Logger(MailerService.name);
+  private transport: nodemailer.Transporter | null = null;
+  private readonly configured: boolean;
+  private readonly from: string;
+
+  constructor(private readonly config: ConfigService) {
+    const host = config.get<string>('SMTP_HOST') ?? '';
+    this.configured = Boolean(host && host !== 'localhost');
+    const fromName = config.get<string>('MAIL_FROM_NAME') ?? 'Spider';
+    const fromEmail = config.get<string>('MAIL_FROM') ?? 'no-reply@example.com';
+    this.from = `"${fromName.replace(/"/g, '')}" <${fromEmail}>`;
+    if (this.configured) {
+      this.transport = nodemailer.createTransport({
+        host,
+        port: Number.parseInt(config.get<string>('SMTP_PORT') ?? '587', 10),
+        secure: (config.get<string>('SMTP_SECURE') ?? 'false') === 'true',
+        requireTLS: (config.get<string>('SMTP_STARTTLS') ?? 'true') === 'true',
+        auth: config.get<string>('SMTP_USER')
+          ? {
+              user: config.get<string>('SMTP_USER'),
+              pass: config.get<string>('SMTP_PASS'),
+            }
+          : undefined,
+        tls: {
+          rejectUnauthorized:
+            (config.get<string>('SMTP_REJECT_UNAUTHORIZED') ?? 'false') ===
+            'true',
+        },
+        name: config.get<string>('SMTP_EHLO_DOMAIN') || undefined,
+      });
+    } else {
+      this.logger.warn(
+        'SMTP_HOST not configured: emails are recorded as skipped',
+      );
+    }
+  }
+
+  isConfigured(): boolean {
+    return this.configured;
+  }
+
+  async send(input: {
+    to: string[];
+    subject: string;
+    text: string;
+    html?: string;
+    attachments?: MailAttachment[];
+  }): Promise<{ skipped: boolean; messageId?: string }> {
+    if (!this.transport) {
+      return { skipped: true };
+    }
+    const info = await this.transport.sendMail({
+      from: this.from,
+      to: input.to.join(', '),
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+      attachments: input.attachments,
+    });
+    return { skipped: false, messageId: info.messageId };
+  }
+}

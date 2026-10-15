@@ -13,7 +13,9 @@ import { GscModule } from './gsc/gsc.module';
 import { HealthController } from './health/health.controller';
 import { Property } from './properties/entities/property.entity';
 import { SyncRun } from './sync/entities/sync-run.entity';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
+import { ReportsModule } from './reports/reports.module';
 import { OverviewModule } from './overview/overview.module';
 import { PropertiesModule } from './properties/properties.module';
 import { SettingsController } from './settings/settings.controller';
@@ -55,6 +57,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     OverviewModule,
     ViewsModule,
     OpportunitiesModule,
+    IntegrationsModule,
+    ReportsModule,
   ],
   controllers: [AppController, HealthController, SettingsController],
   providers: [

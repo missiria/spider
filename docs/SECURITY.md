@@ -47,6 +47,18 @@ review when multi-tenant workspaces (Sprint 1) or OAuth (Sprint 2) land.
 - Revoked access is detected by the checker and shown as "Access revoked"; data is retained
   until the property is deleted (documented in the onboarding screen).
 
+## Outbound integrations (MISS-0094)
+
+- Webhook payloads are signed (`X-Spider-Signature: t=…,v1=HMAC-SHA256(secret, t.body)`, secret
+  shown once at creation, never returned again); receivers reject stale `t` (> 5 min) and bad
+  HMACs — reference verifiers in `docs/WEBHOOKS.md`. Payloads carry only the workspace's own
+  data; a webhook is scoped to its workspace.
+- Webhook URLs: https on a public host in production (loopback / RFC 1918 / link-local refused),
+  10 s timeout, redirects not followed, 4 attempts with backoff, admin-only management.
+- Report emails go through the configured SMTP relay; recipients are validated and capped at 20
+  per schedule; attachments are generated server-side from the stored data only.
+- CSV exports neutralise spreadsheet formula injection (`=`, `+`, `-`, `@` prefixes).
+
 ## Audit and observability
 
 - `opportunity_events` is append-only for every status/priority/assignee/due/note change.

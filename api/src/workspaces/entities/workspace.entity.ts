@@ -18,6 +18,10 @@ export class Workspace {
   @Column({ type: 'varchar', length: 120 })
   name: string;
 
+  /** JSON { name, accent_color, footer } used on PDF reports; null = defaults */
+  @Column({ type: 'text', nullable: true })
+  brand: string | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   created_at: Date;
 

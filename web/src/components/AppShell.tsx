@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, Globe2, Inbox, LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
+import { Activity, FileText, Globe2, Inbox, LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import { endSession } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/properties", label: "Properties", icon: Globe2 },
   { href: "/opportunities", label: "Opportunities", icon: Inbox },
+  { href: "/reports", label: "Reports", icon: FileText },
   { href: "/system", label: "System", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

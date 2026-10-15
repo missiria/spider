@@ -11,6 +11,8 @@ import { resolve } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import request = require('supertest');
 import { DataSource } from 'typeorm';
+import { createHmac } from 'node:crypto';
+import * as nodeHttp from 'node:http';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 process.env.DB_DATABASE = process.env.E2E_DB_DATABASE ?? 'pro_spider_app_test';
@@ -318,6 +320,210 @@ describe('Spider API (e2e)', () => {
       .expect(200);
     expect(rules.body.window_days).toBe(14);
     expect(rules.body.low_ctr.enabled).toBe(false);
+  });
+
+  it('reports: template → data/CSV/PDF reproduce the configuration; schedule dedupes per slot', async () => {
+    const created = await http
+      .post('/reports')
+      .set(auth())
+      .send({
+        name: 'E2E shark',
+        scope: 'property',
+        property_id: propertyId,
+        config: {
+          period: { start: '2026-09-15', end: '2026-10-12' },
+          sections: ['overview', 'queries', 'countries'],
+          filters: { exclude_query: 'player' },
+          limit: 10,
+          notes: 'e2e',
+        },
+      })
+      .expect(201);
+    const id = created.body.id;
+    const data = await http.get(`/reports/${id}/data`).set(auth()).expect(200);
+    expect(data.body.period).toEqual({
+      start: '2026-09-15',
+      end: '2026-10-12',
+    });
+    expect(data.body.overview.current.clicks).toBe(237);
+    expect(data.body.tables.map((t: { section: string }) => t.section)).toEqual(
+      ['queries', 'countries'],
+    );
+    expect(data.body.tables[0].rows.length).toBeLessThanOrEqual(10);
+    for (const r of data.body.tables[0].rows)
+      expect(r.key).not.toMatch(/player/);
+    expect(data.body.tables[0].note).toMatch(/explain \d+% of clicks/);
+    const csv = await http
+      .get(`/reports/${id}/export.csv?section=queries`)
+      .set(auth())
+      .expect(200);
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    expect(csv.text.startsWith('\uFEFFquery,clicks')).toBe(true);
+    await http
+      .get(`/reports/${id}/export.csv?section=pages`)
+      .set(auth())
+      .expect(400);
+    const pdf = await http
+      .get(`/reports/${id}/export.pdf`)
+      .set(auth())
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+    expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((pdf.body as Buffer).length).toBeGreaterThan(5000);
+
+    const sched = await http
+      .post(`/reports/${id}/schedules`)
+      .set(auth())
+      .send({
+        frequency: 'weekly',
+        day: 1,
+        hour: 7,
+        recipients: 'a@example.com, bad, a@example.com',
+      })
+      .expect(201);
+    expect(sched.body.recipients).toEqual(['a@example.com']);
+    expect(sched.body.next_run_at).toBeTruthy();
+    await http
+      .post(`/reports/${id}/schedules`)
+      .set(auth())
+      .send({ frequency: 'weekly', recipients: 'nobody' })
+      .expect(400);
+    // force two due runs in the same slot: second one must be a duplicate, not a second send
+    const ds = app.get(DataSource);
+    await ds.query(
+      'UPDATE report_schedules SET next_run_at = NOW() - INTERVAL 1 HOUR WHERE id = ?',
+      [sched.body.id],
+    );
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ReportsService } = require('../src/reports/reports.service');
+    const reports = app.get(ReportsService);
+    const first = await reports.runDueSchedules();
+    expect(first.due).toBe(1);
+    expect(first.skipped + first.sent).toBe(1); // skipped without SMTP, sent with
+    await ds.query(
+      'UPDATE report_schedules SET next_run_at = NOW() - INTERVAL 1 HOUR WHERE id = ?',
+      [sched.body.id],
+    );
+    const second = await reports.runDueSchedules();
+    expect(second.duplicate).toBe(1);
+    const deliveries = await http
+      .get(`/reports/schedules/${sched.body.id}/deliveries`)
+      .set(auth())
+      .expect(200);
+    expect(deliveries.body.items).toHaveLength(1);
+    const paused = await http
+      .patch(`/reports/schedules/${sched.body.id}`)
+      .set(auth())
+      .send({ enabled: false })
+      .expect(200);
+    expect(paused.body.next_run_at).toBeNull();
+    await http
+      .delete(`/reports/schedules/${sched.body.id}`)
+      .set(auth())
+      .expect(204);
+  });
+
+  it('webhooks: signed delivery to a local receiver, dedupe, deliveries log, alerts through webhook', async () => {
+    const received: {
+      event: string;
+      sigOk: boolean;
+      body: Record<string, unknown>;
+    }[] = [];
+    let secret = '';
+    const server = nodeHttp.createServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => (raw += c));
+      req.on('end', () => {
+        const header = String(req.headers['x-spider-signature'] ?? '');
+        const parts = Object.fromEntries(
+          header.split(',').map((kv) => kv.split('=')),
+        );
+        const expected = createHmac('sha256', secret)
+          .update(`${parts.t}.${raw}`)
+          .digest('hex');
+        received.push({
+          event: String(req.headers['x-spider-event']),
+          sigOk: expected === parts.v1,
+          body: JSON.parse(raw),
+        });
+        res.writeHead(200);
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const hook = await http
+        .post('/webhooks')
+        .set(auth())
+        .send({
+          name: 'e2e',
+          url: `http://127.0.0.1:${port}/hook`,
+          events: ['test', 'alert.triggered'],
+        })
+        .expect(201);
+      secret = hook.body.secret;
+      expect(secret.startsWith('whsec_')).toBe(true);
+      const list = await http.get('/webhooks').set(auth()).expect(200);
+      expect(list.body.items[0].secret).toBeUndefined();
+      const test = await http
+        .post(`/webhooks/${hook.body.id}/test`)
+        .set(auth())
+        .expect(200);
+      expect(test.body.status).toBe('ok');
+      expect(received).toHaveLength(1);
+      expect(received[0].sigOk).toBe(true);
+      expect(received[0].body.workspace).toEqual(
+        expect.objectContaining({ slug: 'missiria' }),
+      );
+
+      // alert rule → webhook; evaluate twice → second run is fully deduped
+      await http
+        .post('/alerts')
+        .set(auth())
+        .send({
+          name: 'e2e high',
+          channel: 'webhook',
+          target: hook.body.id,
+          config: { opportunity_priorities: ['high', 'medium', 'low'] },
+        })
+        .expect(201);
+      const ev1 = await http.post('/alerts/evaluate').set(auth()).expect(200);
+      expect(ev1.body.sent).toBeGreaterThan(0);
+      const ev2 = await http.post('/alerts/evaluate').set(auth()).expect(200);
+      expect(ev2.body.sent).toBe(0);
+      // the in-process cron may already have delivered some; flush the rest and check the log
+      await http.post('/webhooks/process').set(auth()).expect(200);
+      const deliveries = await http
+        .get(`/webhooks/${hook.body.id}/deliveries`)
+        .set(auth())
+        .expect(200);
+      const alerts = deliveries.body.items.filter(
+        (d: { event: string }) => d.event === 'alert.triggered',
+      );
+      expect(alerts).toHaveLength(ev1.body.sent);
+      expect(
+        deliveries.body.items.every(
+          (d: { status: string }) => d.status === 'ok',
+        ),
+      ).toBe(true);
+      expect(
+        received.filter((r) => r.event === 'alert.triggered' && r.sigOk),
+      ).toHaveLength(ev1.body.sent);
+      await http
+        .post('/webhooks')
+        .set(auth())
+        .send({ name: 'bad', url: 'ftp://x', events: ['test'] })
+        .expect(400);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
   });
 
   it('admin invites a member; the member cannot invite; profile updates are own-only', async () => {

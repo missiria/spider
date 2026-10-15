@@ -1,10 +1,28 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, Put } from '@nestjs/common';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Roles } from '../auth/roles.guard';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Property } from '../properties/entities/property.entity';
 import { SyncRun } from '../sync/entities/sync-run.entity';
 import { GscService } from '../gsc/gsc.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+
+class BrandDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  name?: string;
+
+  @IsOptional()
+  @Matches(/^#[0-9a-fA-F]{6}$/)
+  accent_color?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  footer?: string;
+}
 
 @Controller('settings')
 export class SettingsController {
@@ -64,10 +82,26 @@ export class SettingsController {
     };
   }
 
+  /** Report branding (PDF header / accent / footer). Admin only. */
+  @Roles('admin')
+  @Put('brand')
+  brand(@Body() body: BrandDto) {
+    return this.workspaces.updateBrand(body);
+  }
+
   @Get()
   async get() {
     const workspace = await this.workspaces.current();
+    let brand: Record<string, string> = {};
+    try {
+      brand = workspace.brand
+        ? (JSON.parse(workspace.brand) as Record<string, string>)
+        : {};
+    } catch {
+      brand = {};
+    }
     return {
+      brand,
       workspace: {
         id: workspace.id,
         slug: workspace.slug,

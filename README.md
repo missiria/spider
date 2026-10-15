@@ -36,4 +36,4 @@ npm run smoke -- https://spider.missiria.dev admin@… 'password'   # post-deplo
 `api/.env`). On macOS 13 set `PW_BIN` to the cached headless shell for Playwright (see
 `web/playwright.config.ts`). CI runs all of it on every push (`.github/workflows/ci.yml`).
 
-Security review and operations: `docs/SECURITY.md`, `deploy/PRODUCTION.md`.
+Security review and operations: `docs/SECURITY.md`, `deploy/PRODUCTION.md`. Webhooks and API export: `docs/WEBHOOKS.md`.

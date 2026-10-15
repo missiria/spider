@@ -64,12 +64,34 @@ test.describe("Spider smoke", () => {
     await expect(page.locator("ol li").first()).toContainText("e2e note");
   });
 
+  test("reports page creates a template and exposes PDF/CSV/JSON exports", async ({ page }) => {
+    await login(page);
+    await page.goto("/reports");
+    await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+    await page.getByRole("button", { name: "New report" }).click();
+    const name = `E2E fleet report ${Date.now()}`;
+    await page.getByLabel("Name").fill(name);
+    await page.getByRole("button", { name: "Create report" }).click();
+    const card = page.locator("h2", { hasText: name }).locator("..").locator("..");
+    await expect(card).toBeVisible();
+    await expect(card.getByRole("link", { name: /PDF/ })).toHaveAttribute("href", /\/api\/reports\/\d+\/export\.pdf/);
+    const pdf = await page.request.get(await card.getByRole("link", { name: /PDF/ }).getAttribute("href") as string);
+    expect(pdf.status()).toBe(200);
+    expect(pdf.headers()["content-type"]).toBe("application/pdf");
+    page.once("dialog", (d) => d.accept());
+    await card.getByRole("button", { name: "Delete" }).click();
+    await expect(page.locator("h2", { hasText: name })).toHaveCount(0);
+  });
+
   test("system page shows sync health; settings shows rules; sign out clears the session", async ({ page }) => {
     await login(page);
     await page.goto("/system");
     await expect(page.getByRole("heading", { name: "Sync health" })).toBeVisible();
     await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Opportunity rules" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Alerts", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Webhooks" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Report branding" })).toBeVisible();
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login$/);
     await page.goto("/");

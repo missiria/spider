@@ -117,6 +117,7 @@ export interface PropertyDetail {
 
 export interface Settings {
   workspace: { id: number; slug: string; name: string };
+  brand: Brand;
   serviceAccountEmail: string;
   mock: boolean;
   schedule: { accessCheck: string; incrementalSync: string };
@@ -217,4 +218,104 @@ export interface RuleConfig {
   near_page_one: { enabled: boolean; min_position: number; max_position: number; min_impressions: number };
   cannibalization: { enabled: boolean; min_impressions: number; min_share: number };
   regression_days: number;
+}
+
+export type ReportSection = "overview" | "pages" | "queries" | "countries" | "devices" | "search_appearance" | "opportunities";
+
+export interface ReportConfig {
+  period: { days?: number; start?: string; end?: string };
+  sections: ReportSection[];
+  filters?: KeyFilters;
+  limit: number;
+  notes?: string;
+}
+
+export interface ReportSchedule {
+  id: number;
+  report_id: number;
+  frequency: "weekly" | "monthly";
+  day: number;
+  hour: number;
+  recipients: string[];
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_status: "sent" | "failed" | "skipped" | null;
+  last_error: string | null;
+}
+
+export interface ReportTemplate {
+  id: number;
+  name: string;
+  scope: "fleet" | "property";
+  property_id: number | null;
+  config: ReportConfig;
+  created_at: string;
+  schedules: ReportSchedule[];
+}
+
+export interface ReportDelivery {
+  id: number;
+  period_key: string;
+  status: "sent" | "failed" | "skipped";
+  recipients: string[];
+  subject: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface WebhookRow {
+  id: number;
+  name: string;
+  url: string;
+  secret_hint: string;
+  events: string[];
+  enabled: boolean;
+  last_status: "ok" | "failed" | null;
+  last_delivery_at: string | null;
+}
+
+export interface WebhookDelivery {
+  id: number;
+  event: string;
+  status: "pending" | "ok" | "failed";
+  attempts: number;
+  response_status: number | null;
+  error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+}
+
+export interface AlertConfig {
+  opportunity_priorities: ("high" | "medium" | "low")[];
+  opportunity_rules: string[];
+  property_ids: number[];
+  sync_failed: boolean;
+  property_revoked: boolean;
+}
+
+export interface AlertRuleRow {
+  id: number;
+  name: string;
+  channel: "email" | "webhook";
+  target: string[] | number;
+  config: AlertConfig;
+  enabled: boolean;
+  last_fired_at: string | null;
+}
+
+export interface AlertEventRow {
+  id: number;
+  rule_id: number;
+  kind: string;
+  title: string;
+  status: "sent" | "failed" | "skipped";
+  error: string | null;
+  created_at: string;
+}
+
+export interface Brand {
+  name?: string;
+  accent_color?: string;
+  footer?: string;
 }

@@ -3,8 +3,16 @@ import type {
   AuthResponse,
   FleetOverview,
   FleetSeries,
+  AlertEventRow,
+  AlertRuleRow,
+  Brand,
   KeyFilters,
   Opportunity,
+  ReportDelivery,
+  ReportSchedule,
+  ReportTemplate,
+  WebhookDelivery,
+  WebhookRow,
   OpportunityDetail,
   OpportunityList,
   PropertyDetail,
@@ -173,3 +181,34 @@ export interface SyncHealth {
 }
 
 export const getSyncHealth = () => api.get<SyncHealth>("/settings/health").then((r) => r.data);
+
+// ---- reports -------------------------------------------------------------
+export const listReports = () => api.get<{ items: ReportTemplate[]; mail_configured: boolean }>("/reports").then((r) => r.data);
+export const createReport = (body: { name: string; scope: "fleet" | "property"; property_id?: number; config: Record<string, unknown> }) =>
+  api.post<ReportTemplate>("/reports", body).then((r) => r.data);
+export const updateReport = (id: number, body: { name?: string; config?: Record<string, unknown> }) => api.patch<ReportTemplate>(`/reports/${id}`, body).then((r) => r.data);
+export const deleteReport = (id: number) => api.delete(`/reports/${id}`);
+export const reportExportUrl = (id: number, kind: "csv" | "pdf", section?: string) =>
+  `/api/reports/${id}/export.${kind}${kind === "csv" && section ? `?section=${encodeURIComponent(section)}` : ""}`;
+export const createSchedule = (reportId: number, body: { frequency: "weekly" | "monthly"; day?: number; hour?: number; recipients: string }) =>
+  api.post<ReportSchedule>(`/reports/${reportId}/schedules`, body).then((r) => r.data);
+export const updateSchedule = (id: number, body: Partial<{ frequency: "weekly" | "monthly"; day: number; hour: number; recipients: string; enabled: boolean }>) =>
+  api.patch<ReportSchedule>(`/reports/schedules/${id}`, body).then((r) => r.data);
+export const deleteSchedule = (id: number) => api.delete(`/reports/schedules/${id}`);
+export const scheduleDeliveries = (id: number) => api.get<{ items: ReportDelivery[] }>(`/reports/schedules/${id}/deliveries`).then((r) => r.data);
+export const sendScheduleNow = (id: number) => api.post<{ outcome: string; schedule: ReportSchedule }>(`/reports/schedules/${id}/send`).then((r) => r.data);
+
+// ---- integrations --------------------------------------------------------
+export const listWebhooks = () => api.get<{ items: WebhookRow[] }>("/webhooks").then((r) => r.data);
+export const createWebhook = (body: { name: string; url: string; events: string[] }) => api.post<WebhookRow & { secret: string }>("/webhooks", body).then((r) => r.data);
+export const updateWebhook = (id: number, body: Partial<{ name: string; url: string; events: string[]; enabled: boolean }>) => api.patch<WebhookRow>(`/webhooks/${id}`, body).then((r) => r.data);
+export const deleteWebhook = (id: number) => api.delete(`/webhooks/${id}`);
+export const testWebhook = (id: number) => api.post<WebhookDelivery>(`/webhooks/${id}/test`).then((r) => r.data);
+export const webhookDeliveries = (id: number) => api.get<{ items: WebhookDelivery[] }>(`/webhooks/${id}/deliveries`).then((r) => r.data);
+export const listAlerts = () => api.get<{ items: AlertRuleRow[]; recent: AlertEventRow[]; mail_configured: boolean }>("/alerts").then((r) => r.data);
+export const createAlert = (body: { name: string; channel: "email" | "webhook"; target: string | number; config: Partial<AlertRuleRow["config"]> }) => api.post<AlertRuleRow>("/alerts", body).then((r) => r.data);
+export const updateAlert = (id: number, body: Partial<{ name: string; enabled: boolean; target: string | number; config: Partial<AlertRuleRow["config"]> }>) => api.patch<AlertRuleRow>(`/alerts/${id}`, body).then((r) => r.data);
+export const deleteAlert = (id: number) => api.delete(`/alerts/${id}`);
+export const evaluateAlerts = () => api.post<{ rules: number; sent: number; skipped: number; failed: number }>("/alerts/evaluate").then((r) => r.data);
+export const putBrand = (body: Brand) => api.put<Brand>("/settings/brand", body).then((r) => r.data);
+export const processWebhooks = () => api.post<{ attempted: number; ok: number; failed: number }>("/webhooks/process").then((r) => r.data);

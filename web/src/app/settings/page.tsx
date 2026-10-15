@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { AppShell } from "@/components/AppShell";
+import { AlertsSettings, BrandSettings, WebhooksSettings } from "@/components/IntegrationsSettings";
 import { RulesSettings } from "@/components/RulesSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Card, ErrorBox, Spinner } from "@/components/ui";
@@ -89,6 +90,12 @@ export default function SettingsPage() {
           </Card>
 
           <RulesSettings />
+
+          <AlertsSettings />
+
+          <WebhooksSettings isAdmin={me.role === "admin"} />
+
+          <BrandSettings initial={data.brand ?? {}} isAdmin={me.role === "admin"} />
 
           <Card className="p-6">
             <h2 className="font-medium">Workspace</h2>
