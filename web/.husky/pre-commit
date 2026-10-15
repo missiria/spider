@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+
+# Capture partially-staged files (have both staged + unstaged changes)
+# BEFORE lint-staged stashes unstaged changes, so config can exclude them
+# from formatters (avoids "Unstaged changes could not be restored" merge conflict).
+GIT_DIR="$(git rev-parse --git-dir)"
+git diff --name-only > "$GIT_DIR/lint-staged-unstaged-snapshot.txt"
+
+npx lint-staged --config web/lint-staged.config.mjs
+RESULT=$?
+
+rm -f "$GIT_DIR/lint-staged-unstaged-snapshot.txt"
+exit $RESULT

@@ -1,18 +1,22 @@
-# ADR-0003 — MVP-1 authentication: single operator password
+# ADR-0003 — MVP-1 authentication: JWT login with a seeded admin (shark pattern)
 
-Date: 2026-10-15 · Status: accepted, temporary (superseded by MISS-0089 Sprint 1)
+Date: 2026-10-15 · Status: accepted, extended by MISS-0089 (Sprint 1: invitations, roles, workspaces per user)
 
 ## Context
-MVP-1 is a single-workspace internal/beta tool used by the operator to demo the Fleet Overview.
-Real accounts, invitations, roles and tenant isolation are Sprint 1 scope.
+MVP-1 is a single-workspace beta. shark-app and leader-app already implement the same thing:
+`users` table, bcrypt password, `POST /auth/login` → JWT, global guard, a default admin seeded
+from env at boot.
 
 ## Decision
-- `ADMIN_PASSWORD` env var; `/login` form; `middleware.ts` requires a signed httpOnly cookie
-  (`SESSION_SECRET`) on every route except `/login`, `/api/cron/*` (bearer `CRON_SECRET`) and
-  static assets.
-- Data model already carries `Workspace` / `workspaceId`; the seed creates workspace `missiria`.
+- `users` (id, email unique, password_hash, name, role `admin|member`, is_active, timestamps).
+- `DefaultAdminSeeder` creates `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `deploy/env/api.env` on
+  first boot if no user exists (same as shark).
+- API: `AuthModule` (JwtStrategy, `AuthGuard` as `APP_GUARD`, `@Public()` for `/auth/login` and
+  `/health`). JWT secret `JWT_SECRET`, expiry `JWT_EXPIRES_IN` (24h).
+- Web: login page stores the token in an httpOnly-less `token` cookie read by `middleware.ts`
+  (same as shark; revisit with Sprint 1 hardening), axios client sends `Authorization: Bearer`.
+- Cron endpoints are internal NestJS `@Cron` jobs (`@nestjs/schedule`), not HTTP, so no cron
+  secret is needed.
 
 ## Consequences
-- No user table yet; nothing to migrate away except the cookie check.
-- Not exposed publicly until Sprint 1 replaces it, or only behind an additional nginx
-  basic-auth / IP allowlist if the owner wants an early demo URL.
+- Sprint 1 adds memberships and per-user workspace scoping on top of this table, no rewrite.

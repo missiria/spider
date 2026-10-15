@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.0.40
+    container_name: spider-app-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: spider_Root!2026x
+      MYSQL_DATABASE: pro_spider_app_db
+      MYSQL_USER: missiria
+      MYSQL_PASSWORD: spider_Db!2026
+    ports:
+      - "3403:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:

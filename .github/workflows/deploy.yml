@@ -1,0 +1,29 @@
+name: Deploy
+
+# Trigger the VPS deploy on every push to main.
+# The VPS exposes a global `deploy <app_name>` batch command that runs
+# git pull + cache clear (+ rebuild / pm2 reload) for the given app.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-spider
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: VPS deploy (deploy spider)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run deploy on VPS over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            bash -lc 'deploy spider'

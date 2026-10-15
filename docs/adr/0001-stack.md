@@ -1,22 +1,30 @@
-# ADR-0001 — Stack: single Next.js app, Prisma, MySQL 8
+# ADR-0001 — Stack: NestJS API + Next.js web monorepo, TypeORM + mysql2
 
-Date: 2026-10-15 · Status: accepted (reversible)
+Date: 2026-10-15 · Status: accepted (owner decision, supersedes the first draft that proposed Prisma)
 
 ## Context
-EPIC MISS-0087 asks for Next.js App Router, TypeScript, Tailwind, PostgreSQL, Prisma, as one
-deployable Node application. The EKSNEKS workspace convention (apps/GEMINI.md) is NestJS API +
-Next.js web + MySQL 8 + TypeORM monorepos deployed with PM2 behind nginx on one VPS, which
-already runs MySQL 8 for shark-app, go-app and leader-app and runs no PostgreSQL.
+EPIC MISS-0087 suggested a single Next.js app with Prisma and PostgreSQL. The EKSNEKS
+workspace convention (apps/GEMINI.md, shark-app, leader-app, go-app) is an npm-workspaces
+monorepo: `api/` NestJS 11 + TypeORM 0.3 + mysql2 on MySQL 8, `web/` Next.js App Router +
+Tailwind v4 + vitest, PM2 processes behind nginx on one VPS, `deploy/env/*.env` loaded by
+`ecosystem.config.cjs`. The owner asked on 2026-10-15 to use the same tools and libraries as
+Shark and Leader, explicitly no Prisma.
 
 ## Decision
-- One Next.js 15 app (App Router, server actions, route handlers). No separate NestJS API:
-  MVP-1 has no third-party API consumers and the epic explicitly prefers one deployable.
-- Prisma ORM with **MySQL 8**, not PostgreSQL: one database engine on the production VPS,
-  same local `docker compose` habit as the sibling apps. Nothing in the MVP needs
-  PostgreSQL-only features. Switching the Prisma provider later is a schema-level change.
-- Tailwind v4, recharts, zod, vitest, googleapis.
+- Layout and tooling copied from shark-app: root `package.json` with workspaces `web`, `api`;
+  `api/` = `@nestjs/{common,core,config,jwt,passport,platform-express,schedule,throttler,typeorm}`,
+  `typeorm`, `mysql2`, `class-validator`, `class-transformer`, `bcryptjs`, `passport-jwt`, jest;
+  `web/` = Next 15, React 19, Tailwind v4, axios, recharts, lucide-react, jwt-decode,
+  react-toastify, vitest + jsdom.
+- Database: MySQL 8 (`docker compose` locally, VPS MySQL in prod). Schema managed by TypeORM
+  migrations in `api/src/database/migrations`, generated with `typeorm-ts-node-commonjs`
+  against `src/database/data-source.ts` (leader-app pattern). `synchronize` is never on in prod.
+- Auth: JWT bearer issued by `POST /auth/login` (users table, bcrypt), global `AuthGuard` with a
+  `@Public()` decorator, web `middleware.ts` checks the `token` cookie (shark pattern).
+- Ports: API 8040, web 8041 (shark uses 8030/8031). Local MySQL on 3398.
 
 ## Consequences
-- Deploy fits the existing PM2 + GitHub Actions pattern (`spider-web`, one process).
-- If a NestJS API becomes necessary (public API, workers), extract it then; the Prisma schema
-  and `lib/` modules are framework-neutral.
+- Any EKSNEKS developer or agent can move between shark, leader and spider without relearning.
+- Two processes to deploy (`spider-api`, `spider-web`) via the existing PM2 + GitHub Actions
+  pattern; nginx proxies `/api/*` to the API.
+- Google API access lives in the API (`googleapis`), never in the browser.

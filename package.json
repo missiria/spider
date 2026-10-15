@@ -1,0 +1,36 @@
+{
+  "name": "spider-app",
+  "private": true,
+  "workspaces": ["web", "api"],
+  "scripts": {
+    "prepare": "husky web/.husky",
+    "dev:web": "npm run dev -w web",
+    "dev:api": "npm run start:dev -w api",
+    "build": "npm run build:api && npm run build:web",
+    "build:web": "npm run build -w web",
+    "build:api": "npm run build -w api",
+    "lint": "npm run lint -w web && npm run lint -w api",
+    "typecheck": "npm run typecheck -w api && npm run typecheck -w web",
+    "test": "npm run test:api && npm run test:web",
+    "test:api": "npm run test -w api",
+    "test:web": "npm run test -w web",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "db:migrate": "npm run migration:run -w api",
+    "db:migration:show": "npm run migration:show -w api",
+    "db:migration:generate": "npm run migration:generate -w api",
+    "start:web": "npm run start -w web",
+    "start:api": "npm run start:prod -w api"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.12"
+    }
+  },
+  "optionalDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "^4.1.13",
+    "lightningcss-linux-x64-gnu": "^1.30.1"
+  },
+  "dependencies": {
+    "@nestjs/platform-express": "^11.1.24"
+  }
+}
