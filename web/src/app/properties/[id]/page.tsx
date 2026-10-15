@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ExternalLink } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Button, Card, ErrorBox, KpiCard, Spinner, StatusChip } from "@/components/ui";
@@ -11,7 +12,24 @@ import { checkProperty, errorMessage, getProperty, getSettings, resyncProperty }
 import { formatDate, formatDateTime, formatInt, formatPct, formatPosition, shortDate } from "@/lib/format";
 import type { PropertyDetail, TopRow } from "@/lib/types";
 
-function TopTable({ title, rows, keyLabel }: { title: string; rows: TopRow[]; keyLabel: string }) {
+function hostOf(siteUrl: string): string {
+  return siteUrl.replace(/^https?:\/\//, "").replace(/^sc-domain:/, "").replace(/\/+$/, "");
+}
+
+function pathOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.pathname}${u.search}` || "/";
+  } catch {
+    return url;
+  }
+}
+
+function googleSiteSearch(host: string, keyword: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(`site:${host} "${keyword}"`)}`;
+}
+
+function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; kind: "page" | "query"; host: string }) {
   return (
     <Card>
       <div className="border-b border-border px-4 py-3 font-medium">{title}</div>
@@ -19,24 +37,48 @@ function TopTable({ title, rows, keyLabel }: { title: string; rows: TopRow[]; ke
         <div className="px-4 py-8 text-center text-sm text-muted">No rows yet.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col />
+              <col className="w-24" />
+              <col className="w-24" />
+              <col className="w-20" />
+              <col className="w-16" />
+              <col className="w-36" />
+            </colgroup>
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                <th className="px-4 py-2 font-medium">{keyLabel}</th>
+                <th className="px-4 py-2 font-medium">{kind === "page" ? "Page" : "Query"}</th>
                 <th className="px-4 py-2 text-right font-medium">Clicks</th>
                 <th className="px-4 py-2 text-right font-medium">Impr.</th>
                 <th className="px-4 py-2 text-right font-medium">CTR</th>
                 <th className="px-4 py-2 text-right font-medium">Pos.</th>
+                <th className="px-4 py-2 text-right font-medium">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, 25).map((r) => (
-                <tr key={r.id} className="border-b border-border/60">
-                  <td className="max-w-md truncate px-4 py-1.5" title={r.key_text}>{r.key_text}</td>
+              {rows.slice(0, 50).map((r) => (
+                <tr key={r.id} className="border-b border-border/60 hover:bg-surface-muted/60">
+                  <td className="px-4 py-1.5 break-all" title={r.key_text}>
+                    {kind === "page" ? pathOf(r.key_text) : r.key_text}
+                  </td>
                   <td className="tabular px-4 py-1.5 text-right">{formatInt(r.clicks)}</td>
                   <td className="tabular px-4 py-1.5 text-right">{formatInt(r.impressions)}</td>
                   <td className="tabular px-4 py-1.5 text-right">{formatPct(r.ctr)}</td>
                   <td className="tabular px-4 py-1.5 text-right">{formatPosition(r.position)}</td>
+                  <td className="px-4 py-1.5 text-right">
+                    {kind === "page" ? (
+                      <a href={r.key_text} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline">
+                        View page <ExternalLink className="h-3 w-3" aria-hidden />
+                      </a>
+                    ) : (
+                      <a href={googleSiteSearch(host, r.key_text)} target="_blank" rel="noreferrer" title={`site:${host} "${r.key_text}"`} className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline">
+                        View in Google <ExternalLink className="h-3 w-3" aria-hidden />
+                      </a>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -182,9 +224,9 @@ export default function PropertyPage() {
         )}
       </Card>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <TopTable title={`Top pages${data.topPeriod ? ` · ${data.topPeriod.start} → ${data.topPeriod.end}` : ""}`} rows={data.topPages} keyLabel="Page" />
-        <TopTable title={`Top queries${data.topPeriod ? ` · ${data.topPeriod.start} → ${data.topPeriod.end}` : ""}`} rows={data.topQueries} keyLabel="Query" />
+      <div className="mt-6 flex flex-col gap-6">
+        <TopTable title={`Top pages${data.topPeriod ? ` · ${data.topPeriod.start} → ${data.topPeriod.end}` : ""}`} rows={data.topPages} kind="page" host={hostOf(p.site_url)} />
+        <TopTable title={`Top queries${data.topPeriod ? ` · ${data.topPeriod.start} → ${data.topPeriod.end}` : ""}`} rows={data.topQueries} kind="query" host={hostOf(p.site_url)} />
       </div>
 
       <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted">
