@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import request = require('supertest');
 import { DataSource } from 'typeorm';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { createHmac } from 'node:crypto';
 import * as nodeHttp from 'node:http';
 
@@ -49,6 +50,12 @@ describe('Spider API (e2e)', () => {
       }),
     );
     await app.init();
+    // the app's cron jobs (sync checks, scans, report/alert/webhook workers) would race the
+    // tests on the same tables: stop them all, the tests drive every worker explicitly
+    const registry = app.get(SchedulerRegistry);
+    for (const [, job] of registry.getCronJobs()) {
+      job.stop();
+    }
     const ds = app.get(DataSource);
     // clean slate every run, keep the schema
     await ds.query('SET FOREIGN_KEY_CHECKS = 0');
