@@ -498,8 +498,15 @@ describe('Spider API (e2e)', () => {
       expect(ev1.body.sent).toBeGreaterThan(0);
       const ev2 = await http.post('/alerts/evaluate').set(auth()).expect(200);
       expect(ev2.body.sent).toBe(0);
-      // the in-process cron may already have delivered some; flush the rest and check the log
-      await http.post('/webhooks/process').set(auth()).expect(200);
+      // the in-process 5-minute cron may be draining the same queue: flush until nothing is pending
+      for (let i = 0; i < 5; i += 1) {
+        await http.post('/webhooks/process').set(auth()).expect(200);
+        const pending = (
+          await http.get(`/webhooks/${hook.body.id}/deliveries`).set(auth())
+        ).body.items.filter((d: { status: string }) => d.status === 'pending');
+        if (!pending.length) break;
+        await new Promise((r) => setTimeout(r, 300));
+      }
       const deliveries = await http
         .get(`/webhooks/${hook.body.id}/deliveries`)
         .set(auth())
