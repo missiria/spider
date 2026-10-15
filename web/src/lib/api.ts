@@ -3,7 +3,10 @@ import type {
   AuthResponse,
   FleetOverview,
   FleetSeries,
+  KeyFilters,
   PropertyDetail,
+  SavedView,
+  ViewScope,
   PropertyListResponse,
   PropertyRow,
   Settings,
@@ -85,8 +88,27 @@ export const createProperty = (siteUrl: string) =>
     .post<{ property: PropertyRow; serviceAccountEmail: string }>("/properties", { siteUrl })
     .then((r) => r.data);
 
-export const getProperty = (id: number, p: PeriodParams) =>
-  api.get<PropertyDetail>(`/properties/${id}`, { params: p }).then((r) => r.data);
+export const getProperty = (id: number, p: PeriodParams, filters: KeyFilters = {}) =>
+  api
+    .get<PropertyDetail>(`/properties/${id}`, { params: { ...p, ...compact(filters) } })
+    .then((r) => r.data);
+
+function compact<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== "")) as Partial<T>;
+}
+
+export const listViews = (scope: ViewScope, propertyId?: number) =>
+  api
+    .get<{ items: SavedView[] }>("/views", { params: { scope, property_id: propertyId } })
+    .then((r) => r.data);
+
+export const createView = (body: { scope: ViewScope; property_id?: number; name: string; config: Record<string, unknown> }) =>
+  api.post<SavedView>("/views", body).then((r) => r.data);
+
+export const updateView = (id: number, body: { name?: string; config?: Record<string, unknown> }) =>
+  api.patch<SavedView>(`/views/${id}`, body).then((r) => r.data);
+
+export const deleteView = (id: number) => api.delete(`/views/${id}`);
 
 export const checkProperty = (id: number) =>
   api

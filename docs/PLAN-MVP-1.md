@@ -20,8 +20,12 @@ Screens (4):
 | `/settings` | Workspace name, service-account email (read-only), sync schedule info, danger zone (remove property + its data) |
 
 Non-goals for MVP-1 (later sprints): multi-user auth and roles (Sprint 1), Google OAuth (Sprint 2),
-query/page/country/device dimensional sync beyond the per-property top tables (Sprint 3),
-saved views and regex filters (Sprint 4), opportunity inbox (5), reports/alerts (6), billing (7).
+opportunity inbox (5), reports/alerts (6), billing (7).
+
+Pulled forward on 2026-10-15 at the owner's request: the dimensional dataset (Sprint 3,
+ADR-0004) and the Sprint 4 analytics items — custom date range, server-side include/exclude
+regex on pages and queries, saved views per fleet and per property (`saved_views` table,
+`/views` CRUD, config stored as JSON).
 
 ## 2. Onboarding = service account + checker (not OAuth)
 

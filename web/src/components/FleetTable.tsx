@@ -29,8 +29,14 @@ const STATUS_OPTIONS: { value: PropertyStatus | "all"; label: string }[] = [
   { value: "error", label: "Error" },
 ];
 
-export function FleetTable({ items }: { items: PropertyKpi[] }) {
-  const [state, setState] = useState<TableState>(DEFAULT_TABLE_STATE);
+export function FleetTable({ items, state: controlled, onStateChange }: { items: PropertyKpi[]; state?: TableState; onStateChange?: (s: TableState) => void }) {
+  const [local, setLocal] = useState<TableState>(DEFAULT_TABLE_STATE);
+  const state = controlled ?? local;
+  const setState = (update: TableState | ((s: TableState) => TableState)) => {
+    const next = typeof update === "function" ? update(state) : update;
+    if (onStateChange) onStateChange(next);
+    else setLocal(next);
+  };
   const rows = useMemo(() => applyTableState(items, state), [items, state]);
 
   const header = (col: (typeof COLUMNS)[number]) => {

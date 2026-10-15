@@ -15,6 +15,7 @@ import { PropertiesModule } from './properties/properties.module';
 import { SettingsController } from './settings/settings.controller';
 import { SyncModule } from './sync/sync.module';
 import { UsersModule } from './users/users.module';
+import { ViewsModule } from './views/views.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
 @Module({
@@ -46,6 +47,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     PropertiesModule,
     SyncModule,
     OverviewModule,
+    ViewsModule,
   ],
   controllers: [AppController, HealthController, SettingsController],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }, DefaultAdminSeeder],

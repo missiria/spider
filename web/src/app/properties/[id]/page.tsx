@@ -7,12 +7,14 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Search } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { PeriodPicker } from "@/components/PeriodPicker";
+import { SavedViews } from "@/components/SavedViews";
 import { Button, Card, ErrorBox, KpiCard, Spinner, StatusChip } from "@/components/ui";
 import { checkProperty, errorMessage, getProperty, getSettings, resyncProperty } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt, formatPct, formatPosition, shortDate } from "@/lib/format";
 import { appearanceName, countryName, deviceName } from "@/lib/countries";
+import { DEFAULT_PERIOD, periodFromConfig, periodParams, type PeriodSelection } from "@/lib/period";
 import { applyTopState, DEFAULT_TOP_STATE, toggleTopSort, type TopSortKey, type TopTableState } from "@/lib/topTable";
-import type { DimensionBreakdown, PropertyDetail, TopRow } from "@/lib/types";
+import type { DimensionBreakdown, KeyFilters, PropertyDetail, TopRow } from "@/lib/types";
 
 function hostOf(siteUrl: string): string {
   return siteUrl.replace(/^https?:\/\//, "").replace(/^sc-domain:/, "").replace(/\/+$/, "");
@@ -66,12 +68,44 @@ function CoverageNote({ b, kind }: { b: DimensionBreakdown | undefined; kind: Ki
   );
 }
 
-function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: DimensionBreakdown | undefined; kind: Kind; host: string }) {
+function RegexFilters({ value, onApply }: { value: { include?: string; exclude?: string }; onApply: (v: { include?: string; exclude?: string }) => void }) {
+  const [inc, setInc] = useState(value.include ?? "");
+  const [exc, setExc] = useState(value.exclude ?? "");
+  useEffect(() => {
+    setInc(value.include ?? "");
+    setExc(value.exclude ?? "");
+  }, [value.include, value.exclude]);
+  const dirty = inc !== (value.include ?? "") || exc !== (value.exclude ?? "");
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onApply({ include: inc.trim() || undefined, exclude: exc.trim() || undefined });
+      }}
+      aria-label="Regex filters"
+    >
+      <input value={inc} onChange={(e) => setInc(e.target.value)} placeholder="Include regex, e.g. ^iptv (test|essai)" aria-label="Include regex" className="w-56 rounded-md border border-border px-2 py-1.5 font-mono text-xs outline-none focus:border-primary" />
+      <input value={exc} onChange={(e) => setExc(e.target.value)} placeholder="Exclude regex" aria-label="Exclude regex" className="w-40 rounded-md border border-border px-2 py-1.5 font-mono text-xs outline-none focus:border-primary" />
+      <button type="submit" disabled={!dirty} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-muted disabled:opacity-50">
+        Apply
+      </button>
+      {(value.include || value.exclude) && (
+        <button type="button" onClick={() => onApply({})} className="text-xs text-primary hover:underline">
+          Clear regex
+        </button>
+      )}
+    </form>
+  );
+}
+
+function TopTable({ title, breakdown, kind, host, regex, onRegex }: { title: string; breakdown: DimensionBreakdown | undefined; kind: Kind; host: string; regex?: { include?: string; exclude?: string }; onRegex?: (v: { include?: string; exclude?: string }) => void }) {
   const rows = useMemo(() => toRows(breakdown), [breakdown]);
   const [state, setState] = useState<TopTableState>(DEFAULT_TOP_STATE);
   const visible = useMemo(() => applyTopState(rows, state), [rows, state]);
   const filtered = state.search !== "" || state.minClicks > 0;
   const wide = kind === "page" || kind === "query";
+  const regexBar = wide && onRegex ? <div className="border-b border-border px-4 py-2"><RegexFilters value={regex ?? {}} onApply={onRegex} /></div> : null;
   const noun = kind === "page" ? "pages" : kind === "query" ? "queries" : kind === "country" ? "countries" : kind === "device" ? "devices" : "appearances";
 
   return (
@@ -80,6 +114,13 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
         <div>
           <h2 className="font-medium">{title}</h2>
           <CoverageNote b={breakdown} kind={kind} />
+          {breakdown?.filters && (
+            <div className="mt-1 text-xs text-muted">
+              Server filter: {breakdown.filters.include && <code className="rounded bg-surface-muted px-1">/{breakdown.filters.include}/</code>}
+              {breakdown.filters.include && breakdown.filters.exclude && " and not "}
+              {breakdown.filters.exclude && <code className="rounded bg-surface-muted px-1">/{breakdown.filters.exclude}/</code>}
+            </div>
+          )}
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
           <label className="relative">
@@ -115,8 +156,9 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
           </span>
         </div>
       </div>
+      {regexBar}
       {rows.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-muted">No rows yet.</div>
+        <div className="px-4 py-8 text-center text-sm text-muted">{breakdown?.filters ? "No row matches the regex filter." : "No rows yet."}</div>
       ) : (
         <div className="overflow-x-auto">
           <table className={`w-full text-sm ${wide ? "table-fixed" : ""}`}>
@@ -193,7 +235,8 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
 export default function PropertyPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const [days, setDays] = useState(28);
+  const [period, setPeriod] = useState<PeriodSelection>(DEFAULT_PERIOD);
+  const [filters, setFilters] = useState<KeyFilters>({});
   const [data, setData] = useState<PropertyDetail | null>(null);
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -201,12 +244,15 @@ export default function PropertyPage() {
 
   const load = useCallback(async () => {
     try {
-      setData(await getProperty(id, { days }));
+      setData(await getProperty(id, periodParams(period), filters));
       setError(null);
     } catch (err) {
-      setError(errorMessage(err));
+      const msg = errorMessage(err);
+      // a bad regex must not blank the page: keep the last data, surface the message
+      if (/regular expression|filter/i.test(msg)) toast.error(msg);
+      else setError(msg);
     }
-  }, [id, days]);
+  }, [id, period, filters]);
 
   useEffect(() => {
     void load();
@@ -294,8 +340,18 @@ export default function PropertyPage() {
       )}
       {p.last_error && p.status !== "pending" && <div className="mt-4"><ErrorBox message={p.last_error} /></div>}
 
-      <div className="mt-6">
-        <PeriodPicker days={days} onChange={setDays} period={data.period} previous={data.previousPeriod} />
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <PeriodPicker value={period} onChange={setPeriod} period={data.period} previous={data.previousPeriod} />
+        <SavedViews
+          scope="property"
+          propertyId={id}
+          current={{ period: periodParams(period), filters }}
+          onLoad={(c) => {
+            setPeriod(periodFromConfig(c.period));
+            const f = (c.filters ?? {}) as KeyFilters;
+            setFilters({ include_query: f.include_query, exclude_query: f.exclude_query, include_page: f.include_page, exclude_page: f.exclude_page });
+          }}
+        />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -327,8 +383,22 @@ export default function PropertyPage() {
       </Card>
 
       <div className="mt-6 flex flex-col gap-6">
-        <TopTable title={`Top pages · ${data.period.start} → ${data.period.end}`} breakdown={data.breakdowns.page} kind="page" host={hostOf(p.site_url)} />
-        <TopTable title={`Top queries · ${data.period.start} → ${data.period.end}`} breakdown={data.breakdowns.query} kind="query" host={hostOf(p.site_url)} />
+        <TopTable
+          title={`Top pages · ${data.period.start} → ${data.period.end}`}
+          breakdown={data.breakdowns.page}
+          kind="page"
+          host={hostOf(p.site_url)}
+          regex={{ include: filters.include_page, exclude: filters.exclude_page }}
+          onRegex={(v) => setFilters((f) => ({ ...f, include_page: v.include, exclude_page: v.exclude }))}
+        />
+        <TopTable
+          title={`Top queries · ${data.period.start} → ${data.period.end}`}
+          breakdown={data.breakdowns.query}
+          kind="query"
+          host={hostOf(p.site_url)}
+          regex={{ include: filters.include_query, exclude: filters.exclude_query }}
+          onRegex={(v) => setFilters((f) => ({ ...f, include_query: v.include, exclude_query: v.exclude }))}
+        />
         <div className="grid gap-6 xl:grid-cols-3">
           <TopTable title="Countries" breakdown={data.breakdowns.country} kind="country" host={hostOf(p.site_url)} />
           <TopTable title="Devices" breakdown={data.breakdowns.device} kind="device" host={hostOf(p.site_url)} />

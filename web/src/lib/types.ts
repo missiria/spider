@@ -100,6 +100,7 @@ export interface TopRow {
 
 export interface DimensionBreakdown {
   rows: { key: string; clicks: number; impressions: number; ctr: number; position: number }[];
+  filters?: { include?: string; exclude?: string };
   coverage: { clicks: number | null; impressions: number | null };
   stored: Period | null;
   days: number;
@@ -132,4 +133,24 @@ export interface User {
   name: string;
   role: string;
   created_at: string;
+}
+
+export type ViewScope = "fleet" | "property";
+
+export interface SavedView {
+  id: number;
+  scope: ViewScope;
+  property_id: number | null;
+  name: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Server-side regex filters on the query / page dimensions. */
+export interface KeyFilters {
+  include_query?: string;
+  exclude_query?: string;
+  include_page?: string;
+  exclude_page?: string;
 }

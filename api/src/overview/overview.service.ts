@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { DailyMetric } from '../metrics/entities/daily-metric.entity';
@@ -22,6 +22,30 @@ export interface PeriodQuery {
   days?: number;
 }
 
+/** Include / exclude regular expressions applied server-side to query and page keys (MySQL REGEXP, ICU). */
+export interface KeyFilters {
+  include_query?: string;
+  exclude_query?: string;
+  include_page?: string;
+  exclude_page?: string;
+}
+
+const MAX_REGEX_LENGTH = 200;
+
+export function validateRegex(value: string | undefined, label: string): string | undefined {
+  if (!value) return undefined;
+  if (value.length > MAX_REGEX_LENGTH) {
+    throw new BadRequestException(`${label}: pattern longer than ${MAX_REGEX_LENGTH} characters`);
+  }
+  try {
+    // JS and MySQL (ICU) syntaxes overlap for everyday patterns; this catches unbalanced groups etc.
+    new RegExp(value);
+  } catch {
+    throw new BadRequestException(`${label}: invalid regular expression`);
+  }
+  return value;
+}
+
 export interface PropertyKpi {
   id: number;
   site_url: string;
@@ -41,6 +65,8 @@ export interface PropertyKpi {
 
 export interface DimensionBreakdown {
   rows: KeyTotals[];
+  /** regex filters that were applied to this dimension (echoed back for the UI) */
+  filters?: { include?: string; exclude?: string };
   /** share of the property's clicks / impressions these rows explain (null when the property has none) */
   coverage: { clicks: number | null; impressions: number | null };
   /** inclusive date range actually present in the stored rows for this period (null = nothing stored) */
@@ -161,7 +187,17 @@ export class OverviewService {
   }
 
   /** One property: KPIs, daily series, every dimension aggregated over the period. */
-  async propertyDetail(property: Property, q: PeriodQuery) {
+  async propertyDetail(property: Property, q: PeriodQuery, filters: KeyFilters = {}) {
+    const keyFilters: Partial<Record<Dimension, { include?: string; exclude?: string }>> = {
+      query: {
+        include: validateRegex(filters.include_query, 'include_query'),
+        exclude: validateRegex(filters.exclude_query, 'exclude_query'),
+      },
+      page: {
+        include: validateRegex(filters.include_page, 'include_page'),
+        exclude: validateRegex(filters.exclude_page, 'exclude_page'),
+      },
+    };
     const period = resolvePeriod(q);
     const prev = previousPeriod(period);
     const rows = await this.daily.find({
@@ -174,7 +210,7 @@ export class OverviewService {
 
     const breakdowns: Partial<Record<Dimension, DimensionBreakdown>> = {};
     for (const dimension of DIMENSIONS) {
-      breakdowns[dimension] = await this.breakdown(property.id, dimension, period, current);
+      breakdowns[dimension] = await this.breakdown(property.id, dimension, period, current, keyFilters[dimension]);
     }
 
     return {
@@ -208,14 +244,31 @@ export class OverviewService {
     dimension: Dimension,
     period: Period,
     propertyTotals: MetricTotals,
+    keyFilter?: { include?: string; exclude?: string },
   ): Promise<DimensionBreakdown> {
-    const rows = await this.dims
+    const qb = this.dims
       .createQueryBuilder('m')
       .select(['m.key_text AS key_text', 'm.date AS date', 'm.clicks AS clicks', 'm.impressions AS impressions', 'm.position AS position'])
       .where('m.property_id = :propertyId', { propertyId })
       .andWhere('m.dimension = :dimension', { dimension })
-      .andWhere('m.date BETWEEN :start AND :end', period)
-      .getRawMany<{ key_text: string; date: string; clicks: number; impressions: number; position: number }>();
+      .andWhere('m.date BETWEEN :start AND :end', period);
+    if (keyFilter?.include) {
+      qb.andWhere('m.key_text REGEXP :inc', { inc: keyFilter.include });
+    }
+    if (keyFilter?.exclude) {
+      qb.andWhere('m.key_text NOT REGEXP :exc', { exc: keyFilter.exclude });
+    }
+    let rows: { key_text: string; date: string; clicks: number; impressions: number; position: number }[];
+    try {
+      rows = await qb.getRawMany();
+    } catch (err) {
+      // MySQL rejects ICU-invalid patterns at execution time (ER_REGEXP_*)
+      const code = (err as { code?: string }).code ?? '';
+      if (code.startsWith('ER_REGEXP')) {
+        throw new BadRequestException(`${dimension} filter: ${(err as Error).message}`);
+      }
+      throw err;
+    }
 
     const totals = aggregateByKey(
       rows.map((r) => ({
@@ -231,8 +284,10 @@ export class OverviewService {
       (acc, t) => ({ clicks: acc.clicks + t.clicks, impressions: acc.impressions + t.impressions }),
       { clicks: 0, impressions: 0 },
     );
+    const applied = keyFilter && (keyFilter.include || keyFilter.exclude) ? { include: keyFilter.include, exclude: keyFilter.exclude } : undefined;
     return {
       rows: totals.slice(0, TOP_LIMIT),
+      filters: applied,
       coverage: coverage(dimTotals, propertyTotals),
       stored: sorted.length ? { start: sorted[0], end: sorted[sorted.length - 1] } : null,
       days: sorted.length,

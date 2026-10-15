@@ -6,13 +6,17 @@ import { AppShell } from "@/components/AppShell";
 import { FleetChart } from "@/components/FleetChart";
 import { FleetTable } from "@/components/FleetTable";
 import { PeriodPicker } from "@/components/PeriodPicker";
+import { SavedViews } from "@/components/SavedViews";
 import { Button, Card, EmptyState, ErrorBox, KpiCard, Spinner } from "@/components/ui";
 import { errorMessage, getOverview, getSeries } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt, formatPct, formatPosition } from "@/lib/format";
+import { DEFAULT_PERIOD, periodFromConfig, periodParams, type PeriodSelection } from "@/lib/period";
+import { DEFAULT_TABLE_STATE, type TableState } from "@/lib/table";
 import type { FleetOverview, FleetSeries } from "@/lib/types";
 
 export default function OverviewPage() {
-  const [days, setDays] = useState(28);
+  const [period, setPeriod] = useState<PeriodSelection>(DEFAULT_PERIOD);
+  const [table, setTable] = useState<TableState>(DEFAULT_TABLE_STATE);
   const [overview, setOverview] = useState<FleetOverview | null>(null);
   const [series, setSeries] = useState<FleetSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +26,8 @@ export default function OverviewPage() {
     setLoading(true);
     setError(null);
     try {
-      const [o, s] = await Promise.all([getOverview({ days }), getSeries({ days })]);
+      const params = periodParams(period);
+      const [o, s] = await Promise.all([getOverview(params), getSeries(params)]);
       setOverview(o);
       setSeries(s);
     } catch (err) {
@@ -30,7 +35,7 @@ export default function OverviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [days]);
+  }, [period]);
 
   useEffect(() => {
     void load();
@@ -45,7 +50,18 @@ export default function OverviewPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Fleet overview</h1>
           <p className="mt-1 text-sm text-muted">Google Search Console, every connected property, current period vs the previous one.</p>
         </div>
-        <PeriodPicker days={days} onChange={setDays} period={overview?.period} previous={overview?.previousPeriod} />
+        <PeriodPicker value={period} onChange={setPeriod} period={overview?.period} previous={overview?.previousPeriod} />
+      </div>
+      <div className="mt-3">
+        <SavedViews
+          scope="fleet"
+          current={{ period: periodParams(period), table }}
+          onLoad={(c) => {
+            setPeriod(periodFromConfig(c.period));
+            const t = c.table as Partial<TableState> | undefined;
+            setTable({ ...DEFAULT_TABLE_STATE, ...(t ?? {}) });
+          }}
+        />
       </div>
 
       {error && <div className="mt-4"><ErrorBox message={error} /></div>}
@@ -84,7 +100,7 @@ export default function OverviewPage() {
               <h2 className="font-medium">Per property</h2>
               <Link href="/properties" className="text-sm text-primary hover:underline">Manage properties</Link>
             </div>
-            <FleetTable items={overview.items} />
+            <FleetTable items={overview.items} state={table} onStateChange={setTable} />
             <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-3 text-xs text-muted">
               <span>
                 {overview.coverage.connected} of {overview.coverage.properties} properties connected · {overview.coverage.syncedToday} synced today

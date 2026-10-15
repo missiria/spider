@@ -55,13 +55,22 @@ export class PropertiesController {
     @Query('start') start?: string,
     @Query('end') end?: string,
     @Query('days') days?: string,
+    @Query('include_query') includeQuery?: string,
+    @Query('exclude_query') excludeQuery?: string,
+    @Query('include_page') includePage?: string,
+    @Query('exclude_page') excludePage?: string,
   ) {
     const property = await this.properties.get(id);
-    const detail = await this.overview.propertyDetail(property, {
-      start,
-      end,
-      days: days ? Number(days) : undefined,
-    });
+    const detail = await this.overview.propertyDetail(
+      property,
+      { start, end, days: days ? Number(days) : undefined },
+      {
+        include_query: includeQuery,
+        exclude_query: excludeQuery,
+        include_page: includePage,
+        exclude_page: excludePage,
+      },
+    );
     return {
       property: {
         ...property,
