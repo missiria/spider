@@ -60,6 +60,13 @@ describe('Spider API (e2e)', () => {
     // clean slate every run, keep the schema
     await ds.query('SET FOREIGN_KEY_CHECKS = 0');
     for (const t of [
+      'webhook_deliveries',
+      'webhooks',
+      'alert_events',
+      'alert_rules',
+      'report_deliveries',
+      'report_schedules',
+      'reports',
       'opportunity_events',
       'opportunities',
       'opportunity_rules',
