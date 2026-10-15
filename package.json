@@ -1,7 +1,10 @@
 {
   "name": "spider-app",
   "private": true,
-  "workspaces": ["web", "api"],
+  "workspaces": [
+    "web",
+    "api"
+  ],
   "scripts": {
     "prepare": "husky web/.husky",
     "dev:web": "npm run dev -w web",
@@ -19,7 +22,10 @@
     "db:migration:show": "npm run migration:show -w api",
     "db:migration:generate": "npm run migration:generate -w api",
     "start:web": "npm run start -w web",
-    "start:api": "npm run start:prod -w api"
+    "start:api": "npm run start:prod -w api",
+    "test:e2e:api": "npm run test:e2e -w api",
+    "test:e2e:web": "npm run test:e2e -w web",
+    "smoke": "bash scripts/smoke.sh"
   },
   "overrides": {
     "next": {

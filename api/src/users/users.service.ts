@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
 import { User, UserRole } from './entities/user.entity';
 
 @Injectable()
@@ -78,6 +79,29 @@ export class UsersService {
       is_active: true,
     });
     return this.repo.save(user);
+  }
+
+  async invite(input: { email: string; name: string; role?: UserRole }): Promise<{ user: User; password: string }> {
+    const email = input.email.trim().toLowerCase();
+    if (await this.repo.findOne({ where: { email } })) {
+      throw new ConflictException('Email already in use');
+    }
+    // 18 random bytes → 24 url-safe chars; shown once to the inviting admin
+    const password = randomBytes(18).toString('base64url');
+    const user = await this.create({ email, name: input.name, password, role: input.role ?? 'member' });
+    return { user, password };
+  }
+
+  async deactivate(id: number, actingUserId: number): Promise<void> {
+    if (id === actingUserId) {
+      throw new ConflictException('You cannot deactivate your own account');
+    }
+    const user = await this.findById(id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    user.is_active = false;
+    await this.repo.save(user);
   }
 
   verifyPassword(user: User, password: string): Promise<boolean> {

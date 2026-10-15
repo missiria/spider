@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login"];
 
 export function middleware(req: NextRequest) {
-  const token = req.cookies.get("token")?.value || null;
+  const token = req.cookies.get("spider_session")?.value || null;
   const { pathname } = req.nextUrl;
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
@@ -21,5 +21,5 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   // everything except Next internals, static files and the API rewrite
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|ico|txt)$).*)"],
+  matcher: ["/((?!api|auth/session|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|ico|txt)$).*)"],
 };

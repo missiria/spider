@@ -1,12 +1,90 @@
 # Spider — production run-book
 
-1. `cp deploy/env/api.env.example deploy/env/api.env` and `cp deploy/env/web.env.example deploy/env/web.env`, fill secrets (both gitignored).
-2. MySQL 8 on the VPS: create database `pro_spider_app_db` and user `missiria`.
-3. `npm install && npm run build && npm run db:migrate`
-4. `pm2 start ecosystem.config.cjs && pm2 save` → processes `spider-api` (:8090) and `spider-web` (:8091).
-5. nginx: symlink `deploy/nginx/spider.conf` into `/etc/nginx/sites-enabled/`, `nginx -t`, reload; certbot for `spider.missiria.dev`.
-6. GitHub secrets for `.github/workflows/deploy.yml`: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT`; the VPS `deploy spider` command does git pull + build + migrate + `pm2 reload`.
+Domain `spider.missiria.dev` → A 81.17.98.31, Cloudflare **proxied** (set 2026-10-15). Cloudflare
+terminates TLS; nginx on the VPS serves HTTP on :80 with `server_name spider.missiria.dev`
+(Cloudflare "Flexible" works as is; for "Full (strict)" add a certbot cert).
 
-## Domain
+## First deploy (owner / VPS operator)
 
-`spider.missiria.dev` → A 81.17.98.31, Cloudflare **proxied** (set 2026-10-15). Cloudflare terminates TLS; nginx serves plain HTTP on :80 with `server_name spider.missiria.dev` (Cloudflare SSL mode "Flexible" works as is; for "Full (strict)" add a certbot cert on the VPS). The VPS must know the app: register `spider` in the global `deploy <app>` batch (clone path, `npm ci && npm run build && npm run db:migrate && pm2 reload ecosystem.config.cjs`).
+1. `cp deploy/env/api.env.example deploy/env/api.env` and `cp deploy/env/web.env.example deploy/env/web.env`,
+   fill the secrets (both gitignored). The API **refuses to start** in production when
+   `JWT_SECRET` is short/placeholder, `ADMIN_PASSWORD` is a placeholder, `GSC_MOCK=1` or
+   `CORS_ORIGINS` is empty. Generate: `openssl rand -base64 48`.
+2. MySQL 8 on the VPS: `CREATE DATABASE pro_spider_app_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
+   plus a dedicated user with rights on that database only.
+3. `npm ci && npm run build && npm run db:migrate`
+4. `pm2 start ecosystem.config.cjs && pm2 save` → `spider-api` (:8090) and `spider-web` (:8091).
+5. nginx: symlink `deploy/nginx/spider.conf` into `/etc/nginx/sites-enabled/`, `nginx -t`, reload.
+6. Register `spider` in the global `deploy <app>` batch (git pull → `npm ci` → build →
+   `db:migrate` → `pm2 reload ecosystem.config.cjs`). GitHub secrets for
+   `.github/workflows/deploy.yml`: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT`.
+7. Smoke test: `scripts/smoke.sh https://spider.missiria.dev <admin email> '<password>'`.
+8. First login with `ADMIN_EMAIL` / `ADMIN_PASSWORD`; change the name/email in Settings; invite
+   beta users from System → Beta access.
+
+## Every deploy
+
+`deploy spider` (or push to `main`) runs: `git pull` → `npm ci` → `npm run build` →
+`npm run db:migrate` → `pm2 reload ecosystem.config.cjs`. CI (`.github/workflows/ci.yml`) must be
+green on the commit: lint, typecheck, unit tests, API integration tests on MySQL, web and API builds.
+After the deploy run the smoke script; it checks health, login, session cookie, headers and the
+sync-health summary.
+
+## Rollback
+
+1. `pm2 logs spider-api --lines 100` to confirm what broke.
+2. Code: `git checkout <previous tag or sha>` (release-please tags `web-vX.Y.Z` / `api-vX.Y.Z`),
+   `npm ci && npm run build`, `pm2 reload ecosystem.config.cjs`.
+3. Schema: migrations are additive so an older build runs on a newer schema. If a migration
+   itself must go: `npm run migration:revert -w api` (one step per run), then redeploy.
+4. Data: restore the last dump (below) only for data corruption, never for a code rollback.
+
+## Backups
+
+- Nightly dump (cron on the VPS, 03:30):
+  `mysqldump --single-transaction pro_spider_app_db | gzip > /var/backups/spider/spider-$(date +%F).sql.gz`
+  keep 14 days (`find /var/backups/spider -mtime +14 -delete`).
+- `deploy/env/*.env` and the service-account key are **not** in git: keep a copy in the
+  operator's password manager.
+- Restore: `gunzip < dump.sql.gz | mysql pro_spider_app_db`, then `npm run db:migrate`.
+- Everything in the database can be rebuilt from Google except: users, saved views,
+  opportunities with their history and notes. Daily/dimension rows re-sync with
+  "Full resync" (16 months of totals, 90 days of dimensions — older dimension rows are
+  only in the backup).
+
+## Monitoring
+
+| Signal | Where |
+|---|---|
+| Process up | `pm2 status`; `GET /api/health` → `{"status":"ok"}` (public, use for uptime checks) |
+| Sync failures / stale properties | System page in the app, or `GET /api/settings/health` (needs a session) → `ok:false` when a run failed in the last 36 h or a connected property has not synced in 36 h |
+| Property-level errors | Properties page: `last_error` on the row; `sync_runs.details` for per-dimension counts/truncation |
+| Google quota | 429s appear as retried warnings in `pm2 logs spider-api`; persistent 429 → raise `GSC_PACE_MS` |
+| Logins | API log lines `login ok user=… ip=…` / `login failed email=… ip=…` |
+| Scans | `scan: N properties, N findings, N new, N refreshed` daily at 07:30 |
+
+Schedules (server time): access checks for pending properties every 10 min; incremental sync
+06:10; opportunity scan 07:30.
+
+## Support procedures
+
+- **Client cannot connect a property**: they must add the service-account email (Settings →
+  Search Console access) as a Full or Restricted user on the exact property (URL-prefix with
+  trailing slash, or `sc-domain:`). Check access can take a few minutes after Google saves it.
+- **Access revoked**: the property shows "Access revoked"; data stays; re-sharing + Check access resumes.
+- **Numbers differ from Search Console UI**: compare the same dates (data through today − 3),
+  the same property type, and remember query tables only cover non-anonymised queries (coverage
+  % is shown under each table).
+- **Lost password**: an admin deactivates the user and invites again (new temporary password).
+- **Delete a client's data**: Properties → Remove deletes the property and all derived rows
+  (verified by the integration test); users are deactivated, not deleted (audit trail).
+
+## Known limitations (beta)
+
+- One workspace per instance; every user sees every property.
+- Dimensional history is 90 days (configurable), daily totals 16 months. No page × query storage.
+- URL Inspection data is not collected.
+- No billing, plans or quotas: invite-only beta, no pricing exists.
+- Cannibalization findings are heuristics; every finding states its confidence.
+- Local development on macOS 13 needs the standalone MySQL tarball and the cached Playwright
+  headless shell (see `docs/PLAN-MVP-1.md` and the wiki run-book).

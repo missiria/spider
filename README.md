@@ -22,3 +22,18 @@ npm run dev:web         # Web on :3010
 - `api/` — NestJS 11, TypeORM, JWT auth, migrations, Google Search Console sync
 - `web/` — Next.js 15 (App Router, Tailwind 4, Turbopack)
 - `deploy/` — nginx + env examples, PM2 `ecosystem.config.cjs`
+
+## Tests
+
+```bash
+npm run check            # lint + typecheck + unit tests (api jest, web vitest)
+npm run test:e2e:api     # API integration tests on MySQL db pro_spider_app_test (migrations + GSC fixtures)
+npm run test:e2e:web     # Playwright smoke suite against running web (:3010) + api (:8012)
+npm run smoke -- https://spider.missiria.dev admin@… 'password'   # post-deploy smoke test
+```
+
+`test:e2e:api` needs the test database once: `CREATE DATABASE pro_spider_app_test` (same user as
+`api/.env`). On macOS 13 set `PW_BIN` to the cached headless shell for Playwright (see
+`web/playwright.config.ts`). CI runs all of it on every push (`.github/workflows/ci.yml`).
+
+Security review and operations: `docs/SECURITY.md`, `deploy/PRODUCTION.md`.

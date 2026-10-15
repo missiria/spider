@@ -2,14 +2,17 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthModule } from './auth/auth.module';
+import { RolesGuard } from './auth/roles.guard';
 import { DefaultAdminSeeder } from './bootstrap/default-admin.seeder';
 import { GscModule } from './gsc/gsc.module';
 import { HealthController } from './health/health.controller';
+import { Property } from './properties/entities/property.entity';
+import { SyncRun } from './sync/entities/sync-run.entity';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { OverviewModule } from './overview/overview.module';
 import { PropertiesModule } from './properties/properties.module';
@@ -23,7 +26,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // global: 300 requests / minute / IP; login keeps its own 10 / minute (see AuthController)
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: process.env.DB_HOST ?? 'localhost',
@@ -41,6 +45,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
       retryAttempts: 10,
       retryDelay: 3000,
     }),
+    TypeOrmModule.forFeature([Property, SyncRun]),
     UsersModule,
     AuthModule,
     WorkspacesModule,
@@ -52,6 +57,11 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     OpportunitiesModule,
   ],
   controllers: [AppController, HealthController, SettingsController],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }, DefaultAdminSeeder],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    DefaultAdminSeeder,
+  ],
 })
 export class AppModule {}

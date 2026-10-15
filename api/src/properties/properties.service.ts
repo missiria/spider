@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { GscService } from '../gsc/gsc.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { Property } from './entities/property.entity';
@@ -57,6 +57,7 @@ export class PropertiesService {
     @InjectRepository(Property) private readonly repo: Repository<Property>,
     private readonly gsc: GscService,
     private readonly workspaces: WorkspacesService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async list(): Promise<Property[]> {
@@ -97,8 +98,13 @@ export class PropertiesService {
     );
   }
 
+  /**
+   * Deletes the property and everything derived from it: daily + dimension rows, sync runs
+   * and opportunities cascade through foreign keys; saved views are cleaned up here.
+   */
   async remove(id: number): Promise<void> {
     const property = await this.get(id);
+    await this.dataSource.query('DELETE FROM saved_views WHERE property_id = ?', [property.id]);
     await this.repo.remove(property);
   }
 

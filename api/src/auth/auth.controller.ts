@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   HttpCode,
+  Ip,
+  Logger,
   Patch,
   Post,
   Req,
@@ -43,6 +45,8 @@ class UpdateMeDto {
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger('Auth');
+
   constructor(
     private readonly auth: AuthService,
     private readonly users: UsersService,
@@ -52,8 +56,15 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   @HttpCode(200)
-  login(@Body() body: LoginDto) {
-    return this.auth.login(body.email, body.password);
+  async login(@Body() body: LoginDto, @Ip() ip: string) {
+    try {
+      const res = await this.auth.login(body.email, body.password);
+      this.logger.log(`login ok user=${res.user.id} ip=${ip}`);
+      return res;
+    } catch (err) {
+      this.logger.warn(`login failed email=${body.email} ip=${ip}`);
+      throw err;
+    }
   }
 
   @Get('me')

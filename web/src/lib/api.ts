@@ -17,41 +17,27 @@ import type {
   User,
 } from "./types";
 
-export const TOKEN_COOKIE = "token";
-
-export function readToken(): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(new RegExp(`(?:^|; )${TOKEN_COOKIE}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+/** Session lives in an httpOnly cookie set by /auth/session; the browser sends it same-origin. */
+export async function startSession(token: string): Promise<void> {
+  const res = await fetch("/auth/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+  if (!res.ok) throw new Error("Could not start the session");
 }
 
-export function writeToken(token: string | null) {
-  if (typeof document === "undefined") return;
-  if (!token) {
-    document.cookie = `${TOKEN_COOKIE}=; Max-Age=0; path=/; SameSite=Lax`;
-    return;
-  }
-  document.cookie = `${TOKEN_COOKIE}=${encodeURIComponent(token)}; Max-Age=86400; path=/; SameSite=Lax`;
+export async function endSession(): Promise<void> {
+  await fetch("/auth/session", { method: "DELETE" }).catch(() => undefined);
 }
 
 // Same-origin: next.config rewrites /api/* to the NestJS API.
 export const api = axios.create({ baseURL: "/api", timeout: 30_000 });
 
-api.interceptors.request.use((config) => {
-  const token = readToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
 api.interceptors.response.use(
   (res) => res,
   (error: AxiosError) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      writeToken(null);
       if (!window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
+        void endSession().then(() => {
+          window.location.href = "/login";
+        });
       }
     }
     return Promise.reject(error);
@@ -159,3 +145,25 @@ export const getRules = () => api.get<RuleConfig>("/opportunities/rules").then((
 export const putRules = (body: Partial<RuleConfig>) => api.put<RuleConfig>("/opportunities/rules", body).then((r) => r.data);
 
 export const listUsers = () => api.get<{ items: User[] }>("/users").then((r) => r.data);
+
+export const inviteUser = (body: { email: string; name: string; role?: "admin" | "member" }) =>
+  api.post<{ user: User; temporary_password: string }>("/users", body).then((r) => r.data);
+
+export const deactivateUser = (id: number) => api.delete(`/users/${id}`);
+
+export interface SyncHealth {
+  properties: {
+    total: number;
+    connected: number;
+    pending: number;
+    revoked: number;
+    error: number;
+    with_errors: { id: number; site_url: string; status: string; last_error: string }[];
+    stale: { id: number; site_url: string; last_sync_at: string | null }[];
+  };
+  failed_runs: { id: number; property_id: number; kind: string; started_at: string; error: string | null }[];
+  mock: boolean;
+  ok: boolean;
+}
+
+export const getSyncHealth = () => api.get<SyncHealth>("/settings/health").then((r) => r.data);

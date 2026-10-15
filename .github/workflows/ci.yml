@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit + API integration tests, web build
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.40
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: pro_spider_app_test
+          MYSQL_USER: missiria
+          MYSQL_PASSWORD: spider_Db!2026
+        ports:
+          - 3403:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -uroot -proot"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - name: API integration tests (real MySQL, GSC fixtures)
+        working-directory: api
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3403
+          DB_USERNAME: missiria
+          DB_PASSWORD: spider_Db!2026
+        run: npm run test:e2e
+      - name: Web production build
+        run: npm run build:web
+      - name: API production build
+        run: npm run build:api
