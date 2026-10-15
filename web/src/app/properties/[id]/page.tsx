@@ -10,8 +10,9 @@ import { PeriodPicker } from "@/components/PeriodPicker";
 import { Button, Card, ErrorBox, KpiCard, Spinner, StatusChip } from "@/components/ui";
 import { checkProperty, errorMessage, getProperty, getSettings, resyncProperty } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt, formatPct, formatPosition, shortDate } from "@/lib/format";
+import { appearanceName, countryName, deviceName } from "@/lib/countries";
 import { applyTopState, DEFAULT_TOP_STATE, toggleTopSort, type TopSortKey, type TopTableState } from "@/lib/topTable";
-import type { PropertyDetail, TopRow } from "@/lib/types";
+import type { DimensionBreakdown, PropertyDetail, TopRow } from "@/lib/types";
 
 function hostOf(siteUrl: string): string {
   return siteUrl.replace(/^https?:\/\//, "").replace(/^sc-domain:/, "").replace(/\/+$/, "");
@@ -30,23 +31,55 @@ function googleSiteSearch(host: string, keyword: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(`site:${host} "${keyword}"`)}`;
 }
 
-const TOP_COLUMNS: { key: TopSortKey; label: (kind: "page" | "query") => string; align: "left" | "right"; title?: string }[] = [
-  { key: "key_text", label: (k) => (k === "page" ? "Page" : "Query"), align: "left" },
+const TOP_COLUMNS: { key: TopSortKey; label: (kind: "page" | "query" | "country" | "device" | "search_appearance") => string; align: "left" | "right"; title?: string }[] = [
+  { key: "key_text", label: (k) => ({ page: "Page", query: "Query", country: "Country", device: "Device", search_appearance: "Search appearance" })[k], align: "left" },
   { key: "clicks", label: () => "Clicks", align: "right" },
   { key: "impressions", label: () => "Impr.", align: "right" },
   { key: "ctr", label: () => "CTR", align: "right" },
   { key: "position", label: () => "Pos.", align: "right", title: "Average position (lower is better)" },
 ];
 
-function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; kind: "page" | "query"; host: string }) {
+type Kind = "page" | "query" | "country" | "device" | "search_appearance";
+
+function labelFor(kind: Kind, key: string): string {
+  if (kind === "page") return pathOf(key);
+  if (kind === "country") return `${countryName(key)} (${key.toUpperCase()})`;
+  if (kind === "device") return deviceName(key);
+  if (kind === "search_appearance") return appearanceName(key);
+  return key;
+}
+
+function toRows(b: DimensionBreakdown | undefined): TopRow[] {
+  return (b?.rows ?? []).map((r) => ({ id: r.key, key_text: r.key, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }));
+}
+
+function CoverageNote({ b, kind }: { b: DimensionBreakdown | undefined; kind: Kind }) {
+  if (!b || !b.stored) return <span className="text-xs text-muted">No stored rows for this period yet. Run a sync.</span>;
+  const cov = b.coverage.clicks;
+  return (
+    <span className="text-xs text-muted">
+      {b.days} day{b.days === 1 ? "" : "s"} stored ({b.stored.start} → {b.stored.end})
+      {cov !== null && kind === "query" && <> · query rows explain {Math.round(cov * 100)}% of clicks; Google hides low-volume queries</>}
+      {cov !== null && kind === "search_appearance" && <> · {Math.round(cov * 100)}% of clicks came from results with a special appearance (plain blue links are not listed)</>}
+      {cov !== null && kind !== "query" && kind !== "search_appearance" && cov < 0.98 && <> · rows explain {Math.round(cov * 100)}% of clicks</>}
+    </span>
+  );
+}
+
+function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: DimensionBreakdown | undefined; kind: Kind; host: string }) {
+  const rows = useMemo(() => toRows(breakdown), [breakdown]);
   const [state, setState] = useState<TopTableState>(DEFAULT_TOP_STATE);
   const visible = useMemo(() => applyTopState(rows, state), [rows, state]);
   const filtered = state.search !== "" || state.minClicks > 0;
+  const noun = kind === "page" ? "pages" : kind === "query" ? "queries" : kind === "country" ? "countries" : kind === "device" ? "devices" : "appearances";
 
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-        <h2 className="font-medium">{title}</h2>
+        <div>
+          <h2 className="font-medium">{title}</h2>
+          <CoverageNote b={breakdown} kind={kind} />
+        </div>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
           <label className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
@@ -54,8 +87,8 @@ function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; 
               type="search"
               value={state.search}
               onChange={(e) => setState((s) => ({ ...s, search: e.target.value }))}
-              placeholder={kind === "page" ? "Filter pages…" : "Filter queries…"}
-              aria-label={kind === "page" ? "Filter pages" : "Filter queries"}
+              placeholder={`Filter ${noun}…`}
+              aria-label={`Filter ${noun}`}
               className="w-52 rounded-md border border-border py-1.5 pl-8 pr-2 outline-none focus:border-primary"
             />
           </label>
@@ -92,7 +125,7 @@ function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; 
               <col className="w-24" />
               <col className="w-20" />
               <col className="w-16" />
-              <col className="w-36" />
+              {(kind === "page" || kind === "query") && <col className="w-36" />}
             </colgroup>
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-muted">
@@ -108,15 +141,17 @@ function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; 
                     </th>
                   );
                 })}
-                <th className="px-4 py-2 text-right font-medium">
-                  <span className="sr-only">Actions</span>
-                </th>
+                {(kind === "page" || kind === "query") && (
+                  <th className="px-4 py-2 text-right font-medium">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
               {visible.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted">
+                  <td colSpan={kind === "page" || kind === "query" ? 6 : 5} className="px-4 py-8 text-center text-muted">
                     No row matches these filters.
                   </td>
                 </tr>
@@ -124,23 +159,24 @@ function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; 
               {visible.map((r) => (
                 <tr key={r.id} className="border-b border-border/60 hover:bg-surface-muted/60">
                   <td className="px-4 py-1.5 break-all" title={r.key_text}>
-                    {kind === "page" ? pathOf(r.key_text) : r.key_text}
+                    {labelFor(kind, r.key_text)}
                   </td>
                   <td className="tabular px-4 py-1.5 text-right">{formatInt(r.clicks)}</td>
                   <td className="tabular px-4 py-1.5 text-right">{formatInt(r.impressions)}</td>
                   <td className="tabular px-4 py-1.5 text-right">{formatPct(r.ctr)}</td>
                   <td className="tabular px-4 py-1.5 text-right">{formatPosition(r.position)}</td>
-                  <td className="px-4 py-1.5 text-right">
-                    {kind === "page" ? (
+                  {(kind === "page" || kind === "query") && <td className="px-4 py-1.5 text-right">
+                    {kind === "page" && (
                       <a href={r.key_text} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline">
                         View page <ExternalLink className="h-3 w-3" aria-hidden />
                       </a>
-                    ) : (
+                    )}
+                    {kind === "query" && (
                       <a href={googleSiteSearch(host, r.key_text)} target="_blank" rel="noreferrer" title={`site:${host} "${r.key_text}"`} className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline">
                         View in Google <ExternalLink className="h-3 w-3" aria-hidden />
                       </a>
                     )}
-                  </td>
+                  </td>}
                 </tr>
               ))}
             </tbody>
@@ -197,10 +233,10 @@ export default function PropertyPage() {
     }
   };
 
-  const resync = async () => {
+  const resync = async (kind?: "backfill") => {
     setBusy(true);
     try {
-      const res = await resyncProperty(id);
+      const res = await resyncProperty(id, kind);
       toast[res.started ? "success" : "info"](res.started ? `${res.kind} sync started` : (res.reason ?? "Not started"));
       await load();
     } catch (err) {
@@ -240,7 +276,8 @@ export default function PropertyPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" disabled={busy} onClick={check}>Check access</Button>
-          <Button variant="secondary" disabled={busy || p.status !== "connected" || p.syncing} onClick={resync}>Sync now</Button>
+          <Button variant="secondary" disabled={busy || p.status !== "connected" || p.syncing} onClick={() => resync()}>Sync now</Button>
+          <Button variant="secondary" disabled={busy || p.status !== "connected" || p.syncing} onClick={() => resync("backfill")} title="Re-pull 16 months of daily totals and the full dimensional history">Full resync</Button>
         </div>
       </div>
 
@@ -287,8 +324,13 @@ export default function PropertyPage() {
       </Card>
 
       <div className="mt-6 flex flex-col gap-6">
-        <TopTable title={`Top pages${data.topPeriod ? ` · ${data.topPeriod.start} → ${data.topPeriod.end}` : ""}`} rows={data.topPages} kind="page" host={hostOf(p.site_url)} />
-        <TopTable title={`Top queries${data.topPeriod ? ` · ${data.topPeriod.start} → ${data.topPeriod.end}` : ""}`} rows={data.topQueries} kind="query" host={hostOf(p.site_url)} />
+        <TopTable title={`Top pages · ${data.period.start} → ${data.period.end}`} breakdown={data.breakdowns.page} kind="page" host={hostOf(p.site_url)} />
+        <TopTable title={`Top queries · ${data.period.start} → ${data.period.end}`} breakdown={data.breakdowns.query} kind="query" host={hostOf(p.site_url)} />
+        <div className="grid gap-6 xl:grid-cols-3">
+          <TopTable title="Countries" breakdown={data.breakdowns.country} kind="country" host={hostOf(p.site_url)} />
+          <TopTable title="Devices" breakdown={data.breakdowns.device} kind="device" host={hostOf(p.site_url)} />
+          <TopTable title="Search appearance" breakdown={data.breakdowns.search_appearance} kind="search_appearance" host={hostOf(p.site_url)} />
+        </div>
       </div>
 
       <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted">

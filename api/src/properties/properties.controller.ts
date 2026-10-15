@@ -54,9 +54,14 @@ export class PropertiesController {
     @Param('id', ParseIntPipe) id: number,
     @Query('start') start?: string,
     @Query('end') end?: string,
+    @Query('days') days?: string,
   ) {
     const property = await this.properties.get(id);
-    const detail = await this.overview.propertyDetail(property, { start, end });
+    const detail = await this.overview.propertyDetail(property, {
+      start,
+      end,
+      days: days ? Number(days) : undefined,
+    });
     return {
       property: {
         ...property,
@@ -82,7 +87,10 @@ export class PropertiesController {
 
   @Post(':id/sync')
   @HttpCode(202)
-  async resync(@Param('id', ParseIntPipe) id: number) {
+  async resync(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('kind') requested?: string,
+  ) {
     const property = await this.properties.get(id);
     if (property.status !== 'connected') {
       return { started: false, reason: `Property is ${property.status}` };
@@ -90,7 +98,8 @@ export class PropertiesController {
     if (this.sync.isRunning(property.id)) {
       return { started: false, reason: 'A sync is already running' };
     }
-    const kind = property.data_since ? 'incremental' : 'backfill';
+    // ?kind=backfill forces the full history (16 months daily + N days of every dimension)
+    const kind = requested === 'backfill' || !property.data_since ? 'backfill' : 'incremental';
     (kind === 'backfill' ? this.sync.backfill(property) : this.sync.incremental(property)).catch(
       () => undefined,
     );

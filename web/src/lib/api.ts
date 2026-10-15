@@ -93,9 +93,9 @@ export const checkProperty = (id: number) =>
     .post<{ property: PropertyRow; justConnected: boolean }>(`/properties/${id}/check`)
     .then((r) => r.data);
 
-export const resyncProperty = (id: number) =>
+export const resyncProperty = (id: number, kind?: "backfill") =>
   api
-    .post<{ started: boolean; kind?: string; reason?: string }>(`/properties/${id}/sync`)
+    .post<{ started: boolean; kind?: string; reason?: string }>(`/properties/${id}/sync`, null, { params: kind ? { kind } : undefined })
     .then((r) => r.data);
 
 export const deleteProperty = (id: number) => api.delete(`/properties/${id}`);

@@ -51,4 +51,8 @@ export class SyncRun {
 
   @Column({ type: 'text', nullable: true })
   error: string | null;
+
+  /** JSON: per-dimension rows / calls / truncated flags for the run */
+  @Column({ type: 'text', nullable: true })
+  details: string | null;
 }

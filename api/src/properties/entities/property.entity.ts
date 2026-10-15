@@ -12,7 +12,6 @@ import {
 } from 'typeorm';
 import { Workspace } from '../../workspaces/entities/workspace.entity';
 import { DailyMetric } from '../../metrics/entities/daily-metric.entity';
-import { TopRow } from '../../metrics/entities/top-row.entity';
 import { SyncRun } from '../../sync/entities/sync-run.entity';
 
 export type PropertyStatus = 'pending' | 'connected' | 'revoked' | 'error';
@@ -71,9 +70,6 @@ export class Property {
 
   @OneToMany(() => DailyMetric, (row) => row.property)
   daily_metrics: DailyMetric[];
-
-  @OneToMany(() => TopRow, (row) => row.property)
-  top_rows: TopRow[];
 
   @OneToMany(() => SyncRun, (run) => run.property)
   sync_runs: SyncRun[];

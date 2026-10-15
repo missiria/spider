@@ -4,7 +4,6 @@ import type { TopRow } from "./types";
 
 const r = (key: string, clicks: number, impressions: number, position: number): TopRow => ({
   id: key,
-  dimension: "query",
   key_text: key,
   clicks,
   impressions,

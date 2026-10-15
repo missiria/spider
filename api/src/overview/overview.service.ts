@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { DailyMetric } from '../metrics/entities/daily-metric.entity';
-import { TopRow } from '../metrics/entities/top-row.entity';
+import { Dimension, DIMENSIONS, DimensionMetric } from '../metrics/entities/dimension-metric.entity';
+import { aggregateByKey, coverage, KeyTotals } from '../metrics/dimension.math';
 import {
   aggregate,
   defaultEndDate,
@@ -38,7 +39,18 @@ export interface PropertyKpi {
   };
 }
 
+export interface DimensionBreakdown {
+  rows: KeyTotals[];
+  /** share of the property's clicks / impressions these rows explain (null when the property has none) */
+  coverage: { clicks: number | null; impressions: number | null };
+  /** inclusive date range actually present in the stored rows for this period (null = nothing stored) */
+  stored: Period | null;
+  /** number of distinct days with rows in the period */
+  days: number;
+}
+
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
+const TOP_LIMIT = 500;
 
 export function resolvePeriod(q: PeriodQuery): Period {
   const end = q.end && ISO.test(q.end) ? q.end : defaultEndDate();
@@ -53,7 +65,7 @@ export function resolvePeriod(q: PeriodQuery): Period {
 export class OverviewService {
   constructor(
     @InjectRepository(DailyMetric) private readonly daily: Repository<DailyMetric>,
-    @InjectRepository(TopRow) private readonly top: Repository<TopRow>,
+    @InjectRepository(DimensionMetric) private readonly dims: Repository<DimensionMetric>,
     private readonly properties: PropertiesService,
   ) {}
 
@@ -96,9 +108,8 @@ export class OverviewService {
 
     const fleetCurrent = aggregate(rows.filter((r) => inRange(r, period)));
     const fleetPrevious = aggregate(rows.filter((r) => inRange(r, prev)));
-    const syncedToday = props.filter(
-      (p) => p.last_sync_at && p.last_sync_at.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10),
-    ).length;
+    const today = new Date().toISOString().slice(0, 10);
+    const syncedToday = props.filter((p) => p.last_sync_at && p.last_sync_at.toISOString().slice(0, 10) === today).length;
 
     return {
       period,
@@ -149,7 +160,7 @@ export class OverviewService {
     };
   }
 
-  /** One property: KPIs, daily series, top pages / queries for the period. */
+  /** One property: KPIs, daily series, every dimension aggregated over the period. */
   async propertyDetail(property: Property, q: PeriodQuery) {
     const period = resolvePeriod(q);
     const prev = previousPeriod(period);
@@ -161,14 +172,10 @@ export class OverviewService {
     const current = aggregate(rows.filter((r) => inRange(r, period)));
     const previous = aggregate(rows.filter((r) => inRange(r, prev)));
 
-    const topRows = await this.top.find({
-      where: { property_id: property.id },
-      order: { clicks: 'DESC', impressions: 'DESC' },
-    });
-    // top rows are stored for the sync's own 28d window; expose that window honestly
-    const topPeriod = topRows[0]
-      ? { start: topRows[0].period_start, end: topRows[0].period_end }
-      : null;
+    const breakdowns: Partial<Record<Dimension, DimensionBreakdown>> = {};
+    for (const dimension of DIMENSIONS) {
+      breakdowns[dimension] = await this.breakdown(property.id, dimension, period, current);
+    }
 
     return {
       period,
@@ -192,9 +199,43 @@ export class OverviewService {
           ctr: r.ctr,
           position: r.position,
         })),
-      topPeriod,
-      topPages: topRows.filter((r) => r.dimension === 'page').slice(0, 50),
-      topQueries: topRows.filter((r) => r.dimension === 'query').slice(0, 50),
+      breakdowns,
+    };
+  }
+
+  private async breakdown(
+    propertyId: number,
+    dimension: Dimension,
+    period: Period,
+    propertyTotals: MetricTotals,
+  ): Promise<DimensionBreakdown> {
+    const rows = await this.dims
+      .createQueryBuilder('m')
+      .select(['m.key_text AS key_text', 'm.date AS date', 'm.clicks AS clicks', 'm.impressions AS impressions', 'm.position AS position'])
+      .where('m.property_id = :propertyId', { propertyId })
+      .andWhere('m.dimension = :dimension', { dimension })
+      .andWhere('m.date BETWEEN :start AND :end', period)
+      .getRawMany<{ key_text: string; date: string; clicks: number; impressions: number; position: number }>();
+
+    const totals = aggregateByKey(
+      rows.map((r) => ({
+        key_text: r.key_text,
+        clicks: Number(r.clicks),
+        impressions: Number(r.impressions),
+        position: Number(r.position),
+      })),
+    );
+    const dates = new Set(rows.map((r) => String(r.date).slice(0, 10)));
+    const sorted = [...dates].sort();
+    const dimTotals = totals.reduce(
+      (acc, t) => ({ clicks: acc.clicks + t.clicks, impressions: acc.impressions + t.impressions }),
+      { clicks: 0, impressions: 0 },
+    );
+    return {
+      rows: totals.slice(0, TOP_LIMIT),
+      coverage: coverage(dimTotals, propertyTotals),
+      stored: sorted.length ? { start: sorted[0], end: sorted[sorted.length - 1] } : null,
+      days: sorted.length,
     };
   }
 }

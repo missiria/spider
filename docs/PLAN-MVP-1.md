@@ -54,11 +54,11 @@ workspaces     id, slug (unique), name, created_at
 properties     id, workspace_id, site_url (unique per workspace), display_name,
                status pending|connected|revoked|error, connected_at, last_checked_at,
                last_sync_at, data_since (first date with rows), last_error, timestamps
-daily_metrics  id, property_id, date, clicks, impressions, ctr, position   UNIQUE(property_id, date)
-top_rows       id, property_id, period_start, period_end, dimension page|query, key_text, key_hash (md5),
-               clicks, impressions, ctr, position   UNIQUE(property_id, period_start, period_end, dimension, key_hash)
-sync_runs      id, property_id, kind backfill|incremental|top, status running|ok|failed,
-               started_at, finished_at, rows_upserted, range_start, range_end, error
+daily_metrics      id, property_id, date, clicks, impressions, ctr, position   UNIQUE(property_id, date)
+dimension_metrics  id, property_id, date, dimension query|page|country|device|search_appearance, key_text,
+                   key_hash (md5), clicks, impressions, ctr, position   UNIQUE(property_id, date, dimension, key_hash)
+sync_runs          id, property_id, kind backfill|incremental, status running|ok|failed,
+                   started_at, finished_at, rows_upserted, range_start, range_end, error, details (JSON per dimension)
 ```
 
 Schema lives in `api/src/**/*.entity.ts`, migrations in `api/src/database/migrations`
@@ -67,21 +67,18 @@ one so Sprint 1 adds memberships without a data migration. MVP-1 runs with a sin
 and an admin user created at first boot (`DefaultAdminSeeder`). DATE columns are read as
 `YYYY-MM-DD` strings (`dateStrings: ['DATE']`), never as local-time JS Dates.
 
-## 4. Sync
+## 4. Sync (updated 2026-10-15 for MISS-0091, see ADR-0004)
 
-- **Backfill** on connect: one `searchanalytics.query` per property, `dimensions: [date]`,
-  `startDate = today − 16 months` (GSC retention), `endDate = today − 1`, `rowLimit 25000`
-  (≈ 490 rows, one call). Upsert into `DailyMetric`.
-- **Incremental** daily (`GET /api/cron/sync`, cron, bearer secret): re-query the last 10 days
-  per property (GSC finalises data ~3 days late and backfills late rows) and upsert.
-- **Top tables** per property after each sync: `dimensions: [page]` and `[query]` for the
-  current period (28d default), `rowLimit 500`, stored in `TopRow` for the period.
-- Idempotent: all writes are upserts keyed by (property, date | key). Re-running a job is safe.
-- Quota/backoff: 429/5xx → exponential retry (3 attempts), then `SyncRun.FAILED` with the error
-  shown in the UI. Never present partial data as complete: a property whose last run failed shows
-  a warning chip, and the fleet table footer says "N of M properties synced today".
-- Freshness: the overview states "GSC data through <endDate>, synced <lastSyncAt>", and the
-  comparison windows are computed on the server from `DailyMetric` so table and chart agree.
+- **Backfill** on connect: daily totals for 16 months in one call; then, per dimension
+  (query, page, country, device), `['date', dim]` rows for the last `GSC_DIMENSION_BACKFILL_DAYS`
+  (90) in 31-day chunks with `startRow` pagination; search appearance one call per day for
+  `GSC_APPEARANCE_BACKFILL_DAYS` (28). "Full resync" in the UI re-runs this.
+- **Incremental** daily 06:10: last 10 days of everything (GSC finalises late rows).
+- Idempotent: upserts keyed by (property, date) and (property, date, dimension, key_hash).
+- Quota: paced live calls (`GSC_PACE_MS`), retry/backoff on 429/5xx, 20-page cap per chunk
+  with a `truncated` flag; `sync_runs.details` keeps rows/calls/days/truncated per dimension.
+- Coverage shown in the UI per table: stored date range, days present, share of the property's
+  clicks the rows explain (queries are always partial: Google hides low-volume queries).
 
 ## 5. Metrics and comparison (shared, tested helpers)
 

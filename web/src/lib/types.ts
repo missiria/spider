@@ -86,14 +86,23 @@ export interface FleetSeries {
   points: ({ date: string; total: number } & Record<string, number | string>)[];
 }
 
+export type Dimension = "query" | "page" | "country" | "device" | "search_appearance";
+
+/** One aggregated key (query text, page URL, country code, device, appearance) over the period. */
 export interface TopRow {
   id: string;
-  dimension: "page" | "query";
   key_text: string;
   clicks: number;
   impressions: number;
   ctr: number;
   position: number;
+}
+
+export interface DimensionBreakdown {
+  rows: { key: string; clicks: number; impressions: number; ctr: number; position: number }[];
+  coverage: { clicks: number | null; impressions: number | null };
+  stored: Period | null;
+  days: number;
 }
 
 export interface PropertyDetail {
@@ -102,9 +111,7 @@ export interface PropertyDetail {
   previousPeriod: Period;
   kpi: { current: MetricTotals; previous: MetricTotals; delta: MetricDelta };
   series: { date: string; clicks: number; impressions: number; ctr: number; position: number }[];
-  topPeriod: Period | null;
-  topPages: TopRow[];
-  topQueries: TopRow[];
+  breakdowns: Partial<Record<Dimension, DimensionBreakdown>>;
 }
 
 export interface Settings {
