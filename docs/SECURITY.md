@@ -8,7 +8,7 @@ review when multi-tenant workspaces (Sprint 1) or OAuth (Sprint 2) land.
 | Item | State |
 |---|---|
 | Credentials | bcrypt (cost 10) password hashes; `users.password_hash` never leaves the API (`toPublic()`), login replies carry only id/email/name/role. |
-| Login brute force | `POST /auth/login` throttled 10 / minute / IP (429 after), failures logged with email + IP. |
+| Login brute force | `POST /auth/login` throttled 10 / minute / **client IP** plus a **per-account** lock (10 failures / 15 min → 429) so a distributed attacker cannot bypass the IP limit. The client IP comes from the socket, or from `x-spider-client-ip` only when the request carries the shared `INTERNAL_PROXY_SECRET` (the Next server derives it from `cf-connecting-ip` or the right-most `X-Forwarded-For` entry appended by our own proxy — never the raw header). Failures logged with email + IP. |
 | Token | JWT HS256, `JWT_SECRET`, 24 h expiry. **Production refuses to start** with a placeholder or < 32-char secret (`assertProductionConfig`). |
 | Browser session | The Next route `/auth/session` performs the login **server-side** (credentials → API, client IP forwarded for the throttle) and stores the JWT in an **httpOnly, SameSite=Lax, Secure (https)** cookie `spider_session`; the token never reaches browser JavaScript (verified by E2E). The route rejects cross-site requests (`Sec-Fetch-Site`, `Origin`) and non-JSON bodies, so a third-party page cannot log a victim into an attacker account (login CSRF / session fixation). The API accepts the cookie via an extractor; the bearer header still works for scripts. Sign-out deletes the cookie. |
 | CSRF | Cookie is SameSite=Lax and the API only accepts JSON bodies through the validation pipe; cross-site form posts cannot carry `application/json`. Revisit if any endpoint ever accepts form encoding. |
@@ -53,8 +53,14 @@ review when multi-tenant workspaces (Sprint 1) or OAuth (Sprint 2) land.
   shown once at creation, never returned again); receivers reject stale `t` (> 5 min) and bad
   HMACs — reference verifiers in `docs/WEBHOOKS.md`. Payloads carry only the workspace's own
   data; a webhook is scoped to its workspace.
-- Webhook URLs: https on a public host in production (loopback / RFC 1918 / link-local refused),
+- Webhook URLs: https only in production, no credentials in the URL; the hostname is **resolved
+  with DNS at creation and again at every delivery**, every returned address must be public
+  (loopback, RFC 1918, link-local, CGNAT, multicast, IPv6 ULA / link-local / IPv4-mapped
+  refused) and the validated address is **pinned** for the connection (undici Agent with a
+  fixed lookup, SNI kept on the hostname) so DNS rebinding cannot redirect the request;
   10 s timeout, redirects not followed, 4 attempts with backoff, admin-only management.
+- SMTP: certificate verification is **on by default** (`SMTP_REJECT_UNAUTHORIZED=true`); set
+  `false` only for a local relay with a self-signed certificate.
 - Report emails go through the configured SMTP relay; recipients are validated and capped at 20
   per schedule; attachments are generated server-side from the stored data only.
 - CSV exports neutralise spreadsheet formula injection (`=`, `+`, `-`, `@` prefixes).
@@ -74,7 +80,7 @@ review when multi-tenant workspaces (Sprint 1) or OAuth (Sprint 2) land.
 2. No password reset / change flow: admins re-invite (new temporary password) if needed.
 3. No Content-Security-Policy header yet (Next inline theme script needs a nonce strategy).
 4. No MFA.
-5. Rate limiting is per API process memory (no shared store); fine for one PM2 instance.
+5. Rate limiting and the per-account lock live in API process memory (no shared store); fine for one PM2 instance.
 6. Backups rely on the VPS `mysqldump` cron described in `deploy/PRODUCTION.md`; no offsite copy
    is configured by this repo.
 

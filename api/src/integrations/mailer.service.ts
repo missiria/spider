@@ -37,10 +37,11 @@ export class MailerService {
               pass: config.get<string>('SMTP_PASS'),
             }
           : undefined,
+        // certificate verification stays ON unless explicitly disabled for local relays
         tls: {
           rejectUnauthorized:
-            (config.get<string>('SMTP_REJECT_UNAUTHORIZED') ?? 'false') ===
-            'true',
+            (config.get<string>('SMTP_REJECT_UNAUTHORIZED') ?? 'true') !==
+            'false',
         },
         name: config.get<string>('SMTP_EHLO_DOMAIN') || undefined,
       });

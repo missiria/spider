@@ -40,6 +40,18 @@ function rejectCrossSite(req: NextRequest): NextResponse | null {
   return null;
 }
 
+function trustedClientIp(req: NextRequest): string {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim().slice(0, 64);
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const parts = xff.split(",").map((p) => p.trim()).filter(Boolean);
+    // the right-most entry is the one our own proxy appended
+    return (parts[parts.length - 1] ?? "").slice(0, 64);
+  }
+  return "";
+}
+
 /**
  * Performs the login server-side: credentials go to the API, the returned JWT is written
  * into an httpOnly cookie and never reaches browser JavaScript. The API's own login
@@ -59,12 +71,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Email and password are required" }, { status: 400 });
   }
 
-  const forwardedFor = req.headers.get("x-forwarded-for") ?? "";
+  // Client IP for the API's rate limiter: taken from the trusted edge (Cloudflare) or the
+  // right-most X-Forwarded-For entry appended by our nginx — never the raw header — and sent
+  // with a shared secret so nothing else can impersonate this hop.
+  const clientIp = trustedClientIp(req);
+  const proxySecret = process.env.INTERNAL_PROXY_SECRET ?? "";
   let upstream: Response;
   try {
     upstream = await fetch(`${API_URL}/auth/login`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}) },
+      headers: {
+        "content-type": "application/json",
+        ...(clientIp && proxySecret ? { "x-spider-client-ip": clientIp, "x-spider-proxy-secret": proxySecret } : {}),
+      },
       body: JSON.stringify({ email: body.email, password: body.password }),
       cache: "no-store",
     });

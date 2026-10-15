@@ -7,6 +7,7 @@ const PLACEHOLDERS = [
   'replace-with-a-strong-password',
   'default_dev_secret',
   'admin12345',
+  'dev-proxy-secret-change-me',
 ];
 
 /**
@@ -29,6 +30,14 @@ export function assertProductionConfig(
   }
   if ((env.GSC_MOCK ?? '0') === '1') {
     problems.push('GSC_MOCK=1 serves fixtures, not Google data');
+  }
+  if (
+    PLACEHOLDERS.includes(env.INTERNAL_PROXY_SECRET ?? '') ||
+    (env.INTERNAL_PROXY_SECRET ?? '').length < 16
+  ) {
+    problems.push(
+      'INTERNAL_PROXY_SECRET must be a random string of at least 16 characters',
+    );
   }
   if (!(env.CORS_ORIGINS ?? '').trim()) {
     problems.push('CORS_ORIGINS must list the web origin(s)');

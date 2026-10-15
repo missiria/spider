@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthModule } from './auth/auth.module';
+import { ClientIpThrottlerGuard } from './auth/client-ip.throttler.guard';
 import { RolesGuard } from './auth/roles.guard';
 import { DefaultAdminSeeder } from './bootstrap/default-admin.seeder';
 import { GscModule } from './gsc/gsc.module';
@@ -62,7 +63,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
   ],
   controllers: [AppController, HealthController, SettingsController],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: ClientIpThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     DefaultAdminSeeder,

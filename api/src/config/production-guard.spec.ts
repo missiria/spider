@@ -17,8 +17,10 @@ describe('assertProductionConfig', () => {
         },
         logger,
       ),
-    ).toThrow(/JWT_SECRET.*ADMIN_PASSWORD.*GSC_MOCK.*CORS_ORIGINS/s);
-    expect(logger.error).toHaveBeenCalledTimes(4);
+    ).toThrow(
+      /JWT_SECRET.*ADMIN_PASSWORD.*GSC_MOCK.*INTERNAL_PROXY_SECRET.*CORS_ORIGINS/s,
+    );
+    expect(logger.error).toHaveBeenCalledTimes(5);
   });
 
   it('passes in production with real values', () => {
@@ -30,6 +32,7 @@ describe('assertProductionConfig', () => {
           ADMIN_PASSWORD: 'S0me-long-passphrase!',
           GSC_MOCK: '0',
           CORS_ORIGINS: 'https://spider.missiria.dev',
+          INTERNAL_PROXY_SECRET: 'p'.repeat(24),
         },
         logger,
       ),

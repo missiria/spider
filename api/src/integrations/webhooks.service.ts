@@ -15,6 +15,8 @@ import {
   WebhookEvent,
 } from './entities/webhook.entity';
 import { newSecret, signPayload } from './signature';
+import { resolvePublicAddress } from './ssrf';
+import { Agent, fetch as undiciFetch } from 'undici';
 
 const MAX_ATTEMPTS = 4;
 const BACKOFF_MINUTES = [0, 5, 30, 120];
@@ -57,7 +59,7 @@ export class WebhooksService {
 
   async create(input: { name: string; url: string; events: string[] }) {
     const ws = await this.workspaces.current();
-    validateUrl(input.url);
+    await validateUrl(input.url);
     const events = input.events.filter((e): e is WebhookEvent =>
       (WEBHOOK_EVENTS as readonly string[]).includes(e),
     );
@@ -90,7 +92,7 @@ export class WebhooksService {
     const w = await this.find(id);
     if (input.name !== undefined) w.name = input.name.trim();
     if (input.url !== undefined) {
-      validateUrl(input.url);
+      await validateUrl(input.url);
       w.url = input.url.trim();
     }
     if (input.events !== undefined) {
@@ -224,22 +226,43 @@ export class WebhooksService {
     const body = d.payload;
     const signature = signPayload(w.secret, body);
     try {
+      // re-resolve at delivery time and pin the validated address: a DNS answer that changes
+      // between validation and connection cannot redirect us into private space
+      const target = parseWebhookUrl(w.url);
+      const pinned = await resolvePublicAddress(
+        target.hostname,
+        ALLOW_PRIVATE_TARGETS,
+      );
+      const dispatcher = new Agent({
+        connect: {
+          lookup: (_host, _opts, cb) =>
+            cb(null, [{ address: pinned.address, family: pinned.family }]),
+          servername: target.hostname,
+        },
+        connectTimeout: 10_000,
+      });
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10_000);
-      const res = await fetch(w.url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'user-agent': 'Spider-Webhooks/1.0',
-          'x-spider-event': d.event,
-          'x-spider-delivery': String(d.id),
-          'x-spider-signature': signature,
-        },
-        body,
-        signal: controller.signal,
-        redirect: 'manual',
-      });
-      clearTimeout(timer);
+      let res: Awaited<ReturnType<typeof undiciFetch>>;
+      try {
+        res = await undiciFetch(w.url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'user-agent': 'Spider-Webhooks/1.0',
+            'x-spider-event': d.event,
+            'x-spider-delivery': String(d.id),
+            'x-spider-signature': signature,
+          },
+          body,
+          signal: controller.signal,
+          redirect: 'manual',
+          dispatcher,
+        });
+      } finally {
+        clearTimeout(timer);
+        await dispatcher.close().catch(() => undefined);
+      }
       d.response_status = res.status;
       if (res.status >= 200 && res.status < 300) {
         d.status = 'ok';
@@ -284,7 +307,9 @@ export class WebhooksService {
   }
 }
 
-function validateUrl(raw: string): void {
+const ALLOW_PRIVATE_TARGETS = process.env.NODE_ENV !== 'production';
+
+function parseWebhookUrl(raw: string): URL {
   let u: URL;
   try {
     u = new URL(raw);
@@ -293,20 +318,25 @@ function validateUrl(raw: string): void {
   }
   if (
     u.protocol !== 'https:' &&
-    !(u.protocol === 'http:' && process.env.NODE_ENV !== 'production')
+    !(u.protocol === 'http:' && ALLOW_PRIVATE_TARGETS)
   ) {
     throw new BadRequestException('Webhook URL must use https');
   }
-  const host = u.hostname.toLowerCase();
-  // basic SSRF guard: no loopback / link-local / private ranges in production
-  if (
-    process.env.NODE_ENV === 'production' &&
-    (host === 'localhost' ||
-      /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-      host.endsWith('.local'))
-  ) {
-    throw new BadRequestException('Webhook URL must be a public host');
+  if (u.username || u.password) {
+    throw new BadRequestException('Credentials in the URL are not allowed');
+  }
+  return u;
+}
+
+/** Syntax + DNS check at creation / update time. */
+async function validateUrl(raw: string): Promise<void> {
+  const u = parseWebhookUrl(raw);
+  try {
+    await resolvePublicAddress(u.hostname, ALLOW_PRIVATE_TARGETS);
+  } catch (err) {
+    throw new BadRequestException(
+      `Webhook URL must be a public host: ${(err as Error).message}`,
+    );
   }
 }
 

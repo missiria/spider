@@ -9,7 +9,8 @@ terminates TLS; nginx on the VPS serves HTTP on :80 with `server_name spider.mis
 1. `cp deploy/env/api.env.example deploy/env/api.env` and `cp deploy/env/web.env.example deploy/env/web.env`,
    fill the secrets (both gitignored). The API **refuses to start** in production when
    `JWT_SECRET` is short/placeholder, `ADMIN_PASSWORD` is a placeholder, `GSC_MOCK=1` or
-   `CORS_ORIGINS` is empty. Generate: `openssl rand -base64 48`.
+   `CORS_ORIGINS` is empty or `INTERNAL_PROXY_SECRET` is short/placeholder. Generate secrets with
+   `openssl rand -base64 48`; `INTERNAL_PROXY_SECRET` must be identical in `api.env` and `web.env`.
 2. MySQL 8 on the VPS: `CREATE DATABASE pro_spider_app_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
    plus a dedicated user with rights on that database only.
 3. `npm ci && npm run build && npm run db:migrate`

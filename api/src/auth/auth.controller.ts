@@ -3,7 +3,6 @@ import {
   Controller,
   Get,
   HttpCode,
-  Ip,
   Logger,
   Patch,
   Post,
@@ -21,6 +20,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { AuthUser } from './jwt.strategy';
+import { ClientIp } from './client-ip.throttler.guard';
 
 class LoginDto {
   @IsEmail()
@@ -56,7 +56,7 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   @HttpCode(200)
-  async login(@Body() body: LoginDto, @Ip() ip: string) {
+  async login(@Body() body: LoginDto, @ClientIp() ip: string) {
     try {
       const res = await this.auth.login(body.email, body.password);
       this.logger.log(`login ok user=${res.user.id} ip=${ip}`);
