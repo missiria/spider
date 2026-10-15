@@ -71,6 +71,7 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
   const [state, setState] = useState<TopTableState>(DEFAULT_TOP_STATE);
   const visible = useMemo(() => applyTopState(rows, state), [rows, state]);
   const filtered = state.search !== "" || state.minClicks > 0;
+  const wide = kind === "page" || kind === "query";
   const noun = kind === "page" ? "pages" : kind === "query" ? "queries" : kind === "country" ? "countries" : kind === "device" ? "devices" : "appearances";
 
   return (
@@ -89,7 +90,7 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
               onChange={(e) => setState((s) => ({ ...s, search: e.target.value }))}
               placeholder={`Filter ${noun}…`}
               aria-label={`Filter ${noun}`}
-              className="w-52 rounded-md border border-border py-1.5 pl-8 pr-2 outline-none focus:border-primary"
+              className={`${wide ? "w-52" : "w-36"} rounded-md border border-border py-1.5 pl-8 pr-2 outline-none focus:border-primary`}
             />
           </label>
           <select
@@ -118,15 +119,17 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
         <div className="px-4 py-8 text-center text-sm text-muted">No rows yet.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-sm">
-            <colgroup>
-              <col />
-              <col className="w-24" />
-              <col className="w-24" />
-              <col className="w-20" />
-              <col className="w-16" />
-              {(kind === "page" || kind === "query") && <col className="w-36" />}
-            </colgroup>
+          <table className={`w-full text-sm ${wide ? "table-fixed" : ""}`}>
+            {wide && (
+              <colgroup>
+                <col />
+                <col className="w-24" />
+                <col className="w-24" />
+                <col className="w-20" />
+                <col className="w-16" />
+                <col className="w-36" />
+              </colgroup>
+            )}
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-muted">
                 {TOP_COLUMNS.map((col) => {
@@ -134,14 +137,14 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
                   const Icon = active ? (state.sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
                   return (
                     <th key={col.key} scope="col" className={`px-4 py-2 font-medium ${col.align === "right" ? "text-right" : "text-left"}`} aria-sort={active ? (state.sortDir === "asc" ? "ascending" : "descending") : "none"}>
-                      <button type="button" title={col.title} onClick={() => setState((s) => toggleTopSort(s, col.key))} className={`inline-flex items-center gap-1 hover:text-foreground ${active ? "text-foreground" : ""} ${col.align === "right" ? "flex-row-reverse" : ""}`}>
+                      <button type="button" title={col.title} onClick={() => setState((s) => toggleTopSort(s, col.key))} className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-foreground ${active ? "text-foreground" : ""} ${col.align === "right" ? "flex-row-reverse" : ""}`}>
                         {col.label(kind)}
                         <Icon className={`h-3 w-3 ${active ? "" : "opacity-40"}`} aria-hidden />
                       </button>
                     </th>
                   );
                 })}
-                {(kind === "page" || kind === "query") && (
+                {wide && (
                   <th className="px-4 py-2 text-right font-medium">
                     <span className="sr-only">Actions</span>
                   </th>
@@ -151,21 +154,21 @@ function TopTable({ title, breakdown, kind, host }: { title: string; breakdown: 
             <tbody>
               {visible.length === 0 && (
                 <tr>
-                  <td colSpan={kind === "page" || kind === "query" ? 6 : 5} className="px-4 py-8 text-center text-muted">
+                  <td colSpan={wide ? 6 : 5} className="px-4 py-8 text-center text-muted">
                     No row matches these filters.
                   </td>
                 </tr>
               )}
               {visible.map((r) => (
                 <tr key={r.id} className="border-b border-border/60 hover:bg-surface-muted/60">
-                  <td className="px-4 py-1.5 break-all" title={r.key_text}>
+                  <td className={`px-4 py-1.5 ${wide ? "break-all" : "whitespace-nowrap"}`} title={r.key_text}>
                     {labelFor(kind, r.key_text)}
                   </td>
-                  <td className="tabular px-4 py-1.5 text-right">{formatInt(r.clicks)}</td>
-                  <td className="tabular px-4 py-1.5 text-right">{formatInt(r.impressions)}</td>
-                  <td className="tabular px-4 py-1.5 text-right">{formatPct(r.ctr)}</td>
-                  <td className="tabular px-4 py-1.5 text-right">{formatPosition(r.position)}</td>
-                  {(kind === "page" || kind === "query") && <td className="px-4 py-1.5 text-right">
+                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">{formatInt(r.clicks)}</td>
+                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">{formatInt(r.impressions)}</td>
+                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">{formatPct(r.ctr)}</td>
+                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">{formatPosition(r.position)}</td>
+                  {wide && <td className="px-4 py-1.5 text-right">
                     {kind === "page" && (
                       <a href={r.key_text} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline">
                         View page <ExternalLink className="h-3 w-3" aria-hidden />
