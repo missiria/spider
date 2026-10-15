@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button, ErrorBox } from "@/components/ui";
-import { errorMessage, login, startSession } from "@/lib/api";
+import { errorMessage, startSession } from "@/lib/api";
 
 function LoginForm() {
   const router = useRouter();
@@ -18,8 +18,7 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      const res = await login(email, password);
-      await startSession(res.token);
+      await startSession(email, password);
       router.push(params.get("next") || "/");
     } catch (err) {
       setError(errorMessage(err));

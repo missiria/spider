@@ -51,7 +51,10 @@ test.describe("Spider smoke", () => {
     await login(page);
     await page.goto("/opportunities");
     await expect(page.getByRole("heading", { name: "Opportunities" })).toBeVisible();
-    await page.getByLabel("Rule").selectOption("cannibalization");
+    // the item counter renders after data + hydration; selecting earlier can lose the change event
+    await expect(page.locator("span.ml-auto")).toContainText(/items?$/);
+    await page.locator('select[aria-label="Rule"]').selectOption("cannibalization");
+    await expect(page.locator("span.ml-auto")).toContainText(/^16 items$/);
     const first = page.locator("a[href^='/opportunities/']").first();
     await expect(first).toContainText(/Possible cannibalization/);
     await first.click();

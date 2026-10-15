@@ -17,10 +17,19 @@ import type {
   User,
 } from "./types";
 
-/** Session lives in an httpOnly cookie set by /auth/session; the browser sends it same-origin. */
-export async function startSession(token: string): Promise<void> {
-  const res = await fetch("/auth/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
-  if (!res.ok) throw new Error("Could not start the session");
+/**
+ * Login goes through the Next route /auth/session, which calls the API server-side and
+ * stores the JWT in an httpOnly cookie. The token never reaches browser JavaScript.
+ */
+export async function startSession(email: string, password: string): Promise<AuthResponse["user"]> {
+  const res = await fetch("/auth/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; user?: AuthResponse["user"] };
+  if (!res.ok) throw new Error(data.message ?? "Login failed");
+  return data.user as AuthResponse["user"];
 }
 
 export async function endSession(): Promise<void> {
@@ -60,9 +69,6 @@ export interface PeriodParams {
   end?: string;
   days?: number;
 }
-
-export const login = (email: string, password: string) =>
-  api.post<AuthResponse>("/auth/login", { email, password }).then((r) => r.data);
 
 export const getOverview = (p: PeriodParams) =>
   api.get<FleetOverview>("/overview", { params: p }).then((r) => r.data);
