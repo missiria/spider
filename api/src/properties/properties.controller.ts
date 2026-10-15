@@ -40,7 +40,10 @@ export class PropertiesController {
         last_run: await this.sync.latestRun(p.id),
       })),
     );
-    return { serviceAccountEmail: this.gsc.getServiceAccountEmail(), items: withRuns };
+    return {
+      serviceAccountEmail: this.gsc.getServiceAccountEmail(),
+      items: withRuns,
+    };
   }
 
   @Post()
@@ -108,10 +111,14 @@ export class PropertiesController {
       return { started: false, reason: 'A sync is already running' };
     }
     // ?kind=backfill forces the full history (16 months daily + N days of every dimension)
-    const kind = requested === 'backfill' || !property.data_since ? 'backfill' : 'incremental';
-    (kind === 'backfill' ? this.sync.backfill(property) : this.sync.incremental(property)).catch(
-      () => undefined,
-    );
+    const kind =
+      requested === 'backfill' || !property.data_since
+        ? 'backfill'
+        : 'incremental';
+    (kind === 'backfill'
+      ? this.sync.backfill(property)
+      : this.sync.incremental(property)
+    ).catch(() => undefined);
     return { started: true, kind };
   }
 

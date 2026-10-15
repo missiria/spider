@@ -1,5 +1,22 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Req } from '@nestjs/common';
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Post,
+  Req,
+} from '@nestjs/common';
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { AuthUser } from '../auth/jwt.strategy';
 import { Roles } from '../auth/roles.guard';
 import { UsersService } from './users.service';
@@ -43,7 +60,10 @@ export class UsersController {
   @Roles('admin')
   @Delete(':id')
   @HttpCode(204)
-  async deactivate(@Param('id', ParseIntPipe) id: number, @Req() req: { user: AuthUser }) {
+  async deactivate(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: { user: AuthUser },
+  ) {
     await this.users.deactivate(id, req.user.userId);
   }
 }

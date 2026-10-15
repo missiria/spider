@@ -1,16 +1,28 @@
 import { Logger } from '@nestjs/common';
 
-const PLACEHOLDERS = ['', 'change-me', 'replace-with-a-long-random-secret', 'replace-with-a-strong-password', 'default_dev_secret', 'admin12345'];
+const PLACEHOLDERS = [
+  '',
+  'change-me',
+  'replace-with-a-long-random-secret',
+  'replace-with-a-strong-password',
+  'default_dev_secret',
+  'admin12345',
+];
 
 /**
  * Refuse to start in production with placeholder secrets. In development only warn.
  * Exported for unit tests; throws with every problem listed at once.
  */
-export function assertProductionConfig(env: NodeJS.ProcessEnv, logger: Pick<Logger, 'warn' | 'error'>): void {
+export function assertProductionConfig(
+  env: NodeJS.ProcessEnv,
+  logger: Pick<Logger, 'warn' | 'error'>,
+): void {
   const problems: string[] = [];
   const secret = env.JWT_SECRET ?? '';
   if (PLACEHOLDERS.includes(secret) || secret.length < 32) {
-    problems.push('JWT_SECRET must be a random string of at least 32 characters');
+    problems.push(
+      'JWT_SECRET must be a random string of at least 32 characters',
+    );
   }
   if (PLACEHOLDERS.includes(env.ADMIN_PASSWORD ?? '')) {
     problems.push('ADMIN_PASSWORD must not be a placeholder');

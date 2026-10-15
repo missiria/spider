@@ -17,7 +17,8 @@ export interface GscRow {
   position: number;
 }
 
-export type GscDimension = 'date' | 'query' | 'page' | 'country' | 'device' | 'searchAppearance';
+export type GscDimension =
+  'date' | 'query' | 'page' | 'country' | 'device' | 'searchAppearance';
 
 export interface GscPagedResult {
   rows: GscRow[];
@@ -50,7 +51,10 @@ export class GscService {
 
   constructor(private readonly config: ConfigService) {
     this.mock = (config.get<string>('GSC_MOCK') ?? '0') === '1';
-    this.paceMs = Number.parseInt(config.get<string>('GSC_PACE_MS') ?? '120', 10);
+    this.paceMs = Number.parseInt(
+      config.get<string>('GSC_PACE_MS') ?? '120',
+      10,
+    );
     this.fixturesDir = this.resolveFixturesDir();
     if (this.mock) {
       this.logger.warn(`GSC_MOCK=1: serving fixtures from ${this.fixturesDir}`);
@@ -67,7 +71,8 @@ export class GscService {
       return this.serviceAccountEmail;
     }
     if (this.mock) {
-      this.serviceAccountEmail = 'spider-reader@example.iam.gserviceaccount.com';
+      this.serviceAccountEmail =
+        'spider-reader@example.iam.gserviceaccount.com';
       return this.serviceAccountEmail;
     }
     const creds = this.loadCredentials();
@@ -97,7 +102,14 @@ export class GscService {
     startRow = 0,
   ): Promise<GscRow[]> {
     if (this.mock) {
-      return this.mockQuery(siteUrl, startDate, endDate, dimensions, rowLimit, startRow);
+      return this.mockQuery(
+        siteUrl,
+        startDate,
+        endDate,
+        dimensions,
+        rowLimit,
+        startRow,
+      );
     }
     await this.pace();
     const res = await this.withRetry(() =>
@@ -133,7 +145,14 @@ export class GscService {
     let calls = 0;
     let startRow = 0;
     for (let page = 0; page < MAX_PAGES; page += 1) {
-      const batch = await this.query(siteUrl, startDate, endDate, dimensions, GSC_ROW_LIMIT, startRow);
+      const batch = await this.query(
+        siteUrl,
+        startDate,
+        endDate,
+        dimensions,
+        GSC_ROW_LIMIT,
+        startRow,
+      );
       calls += 1;
       rows.push(...batch);
       if (batch.length < GSC_ROW_LIMIT) {
@@ -154,7 +173,14 @@ export class GscService {
     endDate: string,
   ): Promise<GscPagedResult> {
     if (this.mock) {
-      const rows = this.mockQuery(siteUrl, startDate, endDate, ['searchAppearance'], GSC_ROW_LIMIT, 0);
+      const rows = this.mockQuery(
+        siteUrl,
+        startDate,
+        endDate,
+        ['searchAppearance'],
+        GSC_ROW_LIMIT,
+        0,
+      );
       return { rows, calls: 0, truncated: false };
     }
     const rows: GscRow[] = [];
@@ -198,9 +224,14 @@ export class GscService {
       private_key?: string;
     };
     if (!parsed.client_email || !parsed.private_key) {
-      throw new Error('GSC_SERVICE_ACCOUNT_JSON does not look like a service-account key');
+      throw new Error(
+        'GSC_SERVICE_ACCOUNT_JSON does not look like a service-account key',
+      );
     }
-    return { client_email: parsed.client_email, private_key: parsed.private_key };
+    return {
+      client_email: parsed.client_email,
+      private_key: parsed.private_key,
+    };
   }
 
   private async pace(): Promise<void> {
@@ -221,7 +252,8 @@ export class GscService {
         const status =
           (err as { code?: number; response?: { status?: number } }).code ??
           (err as { response?: { status?: number } }).response?.status;
-        const retryable = status === 429 || (typeof status === 'number' && status >= 500);
+        const retryable =
+          status === 429 || (typeof status === 'number' && status >= 500);
         if (!retryable || i === attempts - 1) {
           throw err;
         }
@@ -278,7 +310,11 @@ export class GscService {
       file = `dims/${host}.${dimensions[1]}.json`;
     } else if (dimensions[0] === 'searchAppearance') {
       file = `dims/${host}.searchAppearance.json`;
-    } else if (dimensions.length === 2 && dimensions[0] === 'query' && dimensions[1] === 'page') {
+    } else if (
+      dimensions.length === 2 &&
+      dimensions[0] === 'query' &&
+      dimensions[1] === 'page'
+    ) {
       file = `top/${host}.query_page.json`;
     } else {
       file = `top/${host}.${dimensions[0]}.json`;
@@ -287,7 +323,9 @@ export class GscService {
     const rows = data?.rows ?? [];
     // fixtures for date-keyed files carry the date in keys[0]
     const dated = file.startsWith('daily/') || file.startsWith('dims/');
-    const filtered = dated ? rows.filter((r) => r.keys[0] >= startDate && r.keys[0] <= endDate) : rows;
+    const filtered = dated
+      ? rows.filter((r) => r.keys[0] >= startDate && r.keys[0] <= endDate)
+      : rows;
     return filtered.slice(startRow, startRow + rowLimit);
   }
 }

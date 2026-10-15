@@ -28,7 +28,9 @@ export class SyncScheduler {
           await this.sync.backfill(updated);
         }
       } catch (err) {
-        this.logger.warn(`check ${property.site_url}: ${(err as Error).message}`);
+        this.logger.warn(
+          `check ${property.site_url}: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -38,12 +40,15 @@ export class SyncScheduler {
     const connected = await this.properties.findByStatus('connected');
     for (const property of connected) {
       try {
-        const { property: updated } = await this.properties.checkAccess(property);
+        const { property: updated } =
+          await this.properties.checkAccess(property);
         if (updated.status === 'connected') {
           await this.sync.incremental(updated);
         }
       } catch (err) {
-        this.logger.warn(`daily ${property.site_url}: ${(err as Error).message}`);
+        this.logger.warn(
+          `daily ${property.site_url}: ${(err as Error).message}`,
+        );
       }
     }
   }

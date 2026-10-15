@@ -14,7 +14,13 @@ import { OpportunitiesService } from './opportunities.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Opportunity, OpportunityEvent, OpportunityRulesConfig, DailyMetric, DimensionMetric]),
+    TypeOrmModule.forFeature([
+      Opportunity,
+      OpportunityEvent,
+      OpportunityRulesConfig,
+      DailyMetric,
+      DimensionMetric,
+    ]),
     PropertiesModule,
     WorkspacesModule,
     GscModule,

@@ -24,7 +24,10 @@ export class UsersService {
   }
 
   listActive(): Promise<User[]> {
-    return this.repo.find({ where: { is_active: true }, order: { name: 'ASC' } });
+    return this.repo.find({
+      where: { is_active: true },
+      order: { name: 'ASC' },
+    });
   }
 
   findById(id: number): Promise<User | null> {
@@ -81,14 +84,23 @@ export class UsersService {
     return this.repo.save(user);
   }
 
-  async invite(input: { email: string; name: string; role?: UserRole }): Promise<{ user: User; password: string }> {
+  async invite(input: {
+    email: string;
+    name: string;
+    role?: UserRole;
+  }): Promise<{ user: User; password: string }> {
     const email = input.email.trim().toLowerCase();
     if (await this.repo.findOne({ where: { email } })) {
       throw new ConflictException('Email already in use');
     }
     // 18 random bytes → 24 url-safe chars; shown once to the inviting admin
     const password = randomBytes(18).toString('base64url');
-    const user = await this.create({ email, name: input.name, password, role: input.role ?? 'member' });
+    const user = await this.create({
+      email,
+      name: input.name,
+      password,
+      role: input.role ?? 'member',
+    });
     return { user, password };
   }
 

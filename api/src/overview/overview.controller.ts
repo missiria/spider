@@ -11,7 +11,11 @@ export class OverviewController {
     @Query('end') end?: string,
     @Query('days') days?: string,
   ) {
-    return this.overview.fleet({ start, end, days: days ? Number(days) : undefined });
+    return this.overview.fleet({
+      start,
+      end,
+      days: days ? Number(days) : undefined,
+    });
   }
 
   @Get('series')
@@ -20,6 +24,10 @@ export class OverviewController {
     @Query('end') end?: string,
     @Query('days') days?: string,
   ) {
-    return this.overview.series({ start, end, days: days ? Number(days) : undefined });
+    return this.overview.series({
+      start,
+      end,
+      days: days ? Number(days) : undefined,
+    });
   }
 }

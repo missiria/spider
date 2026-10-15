@@ -13,7 +13,15 @@ import {
   Req,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { Repository } from 'typeorm';
 import { AuthUser } from '../auth/jwt.strategy';
 import { WorkspacesService } from '../workspaces/workspaces.service';
@@ -62,7 +70,10 @@ export class ViewsController {
   }
 
   @Get()
-  async list(@Query('scope') scope?: string, @Query('property_id') propertyId?: string) {
+  async list(
+    @Query('scope') scope?: string,
+    @Query('property_id') propertyId?: string,
+  ) {
     const ws = await this.workspaces.current();
     const where: Partial<SavedView> = { workspace_id: ws.id };
     if (scope === 'fleet' || scope === 'property') where.scope = scope;
@@ -80,7 +91,8 @@ export class ViewsController {
         workspace_id: ws.id,
         user_id: req.user.userId,
         scope: body.scope,
-        property_id: body.scope === 'property' ? (body.property_id ?? null) : null,
+        property_id:
+          body.scope === 'property' ? (body.property_id ?? null) : null,
         name: body.name.trim(),
         config,
       }),
@@ -89,10 +101,14 @@ export class ViewsController {
   }
 
   @Patch(':id')
-  async update(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateViewDto) {
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateViewDto,
+  ) {
     const view = await this.find(id);
     if (body.name !== undefined) view.name = body.name.trim();
-    if (body.config !== undefined) view.config = JSON.stringify(body.config).slice(0, MAX_CONFIG_BYTES);
+    if (body.config !== undefined)
+      view.config = JSON.stringify(body.config).slice(0, MAX_CONFIG_BYTES);
     return this.present(await this.repo.save(view));
   }
 
@@ -105,7 +121,9 @@ export class ViewsController {
 
   private async find(id: number): Promise<SavedView> {
     const ws = await this.workspaces.current();
-    const view = await this.repo.findOne({ where: { id, workspace_id: ws.id } });
+    const view = await this.repo.findOne({
+      where: { id, workspace_id: ws.id },
+    });
     if (!view) throw new NotFoundException('View not found');
     return view;
   }

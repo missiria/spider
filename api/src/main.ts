@@ -17,7 +17,10 @@ async function bootstrap() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=()',
+    );
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
@@ -34,7 +37,10 @@ async function bootstrap() {
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
-  app.enableCors({ origin: origins.length ? origins : true, credentials: true });
+  app.enableCors({
+    origin: origins.length ? origins : true,
+    credentials: true,
+  });
 
   const port = Number.parseInt(process.env.APP_EXPOSE_PORT ?? '8012', 10);
   const host = process.env.HOST ?? '0.0.0.0';

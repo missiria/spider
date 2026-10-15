@@ -2,7 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { DailyMetric } from '../metrics/entities/daily-metric.entity';
-import { Dimension, DIMENSIONS, DimensionMetric } from '../metrics/entities/dimension-metric.entity';
+import {
+  Dimension,
+  DIMENSIONS,
+  DimensionMetric,
+} from '../metrics/entities/dimension-metric.entity';
 import { aggregateByKey, coverage, KeyTotals } from '../metrics/dimension.math';
 import {
   aggregate,
@@ -32,10 +36,15 @@ export interface KeyFilters {
 
 const MAX_REGEX_LENGTH = 200;
 
-export function validateRegex(value: string | undefined, label: string): string | undefined {
+export function validateRegex(
+  value: string | undefined,
+  label: string,
+): string | undefined {
   if (!value) return undefined;
   if (value.length > MAX_REGEX_LENGTH) {
-    throw new BadRequestException(`${label}: pattern longer than ${MAX_REGEX_LENGTH} characters`);
+    throw new BadRequestException(
+      `${label}: pattern longer than ${MAX_REGEX_LENGTH} characters`,
+    );
   }
   try {
     // JS and MySQL (ICU) syntaxes overlap for everyday patterns; this catches unbalanced groups etc.
@@ -90,8 +99,10 @@ export function resolvePeriod(q: PeriodQuery): Period {
 @Injectable()
 export class OverviewService {
   constructor(
-    @InjectRepository(DailyMetric) private readonly daily: Repository<DailyMetric>,
-    @InjectRepository(DimensionMetric) private readonly dims: Repository<DimensionMetric>,
+    @InjectRepository(DailyMetric)
+    private readonly daily: Repository<DailyMetric>,
+    @InjectRepository(DimensionMetric)
+    private readonly dims: Repository<DimensionMetric>,
     private readonly properties: PropertiesService,
   ) {}
 
@@ -107,7 +118,8 @@ export class OverviewService {
           order: { date: 'ASC' },
         })
       : [];
-    const inRange = (r: DailyMetric, p: Period) => r.date >= p.start && r.date <= p.end;
+    const inRange = (r: DailyMetric, p: Period) =>
+      r.date >= p.start && r.date <= p.end;
 
     const items: PropertyKpi[] = props.map((p) => {
       const mine = rows.filter((r) => r.property_id === p.id);
@@ -135,7 +147,10 @@ export class OverviewService {
     const fleetCurrent = aggregate(rows.filter((r) => inRange(r, period)));
     const fleetPrevious = aggregate(rows.filter((r) => inRange(r, prev)));
     const today = new Date().toISOString().slice(0, 10);
-    const syncedToday = props.filter((p) => p.last_sync_at && p.last_sync_at.toISOString().slice(0, 10) === today).length;
+    const syncedToday = props.filter(
+      (p) =>
+        p.last_sync_at && p.last_sync_at.toISOString().slice(0, 10) === today,
+    ).length;
 
     return {
       period,
@@ -145,7 +160,10 @@ export class OverviewService {
         previous: fleetPrevious,
         delta: {
           clicks: delta(fleetCurrent.clicks, fleetPrevious.clicks),
-          impressions: delta(fleetCurrent.impressions, fleetPrevious.impressions),
+          impressions: delta(
+            fleetCurrent.impressions,
+            fleetPrevious.impressions,
+          ),
         },
       },
       coverage: {
@@ -181,14 +199,23 @@ export class OverviewService {
     }
     return {
       period,
-      properties: props.map((p) => ({ id: p.id, display_name: p.display_name })),
+      properties: props.map((p) => ({
+        id: p.id,
+        display_name: p.display_name,
+      })),
       points: [...byDate.entries()].map(([date, v]) => ({ date, ...v })),
     };
   }
 
   /** One property: KPIs, daily series, every dimension aggregated over the period. */
-  async propertyDetail(property: Property, q: PeriodQuery, filters: KeyFilters = {}) {
-    const keyFilters: Partial<Record<Dimension, { include?: string; exclude?: string }>> = {
+  async propertyDetail(
+    property: Property,
+    q: PeriodQuery,
+    filters: KeyFilters = {},
+  ) {
+    const keyFilters: Partial<
+      Record<Dimension, { include?: string; exclude?: string }>
+    > = {
       query: {
         include: validateRegex(filters.include_query, 'include_query'),
         exclude: validateRegex(filters.exclude_query, 'exclude_query'),
@@ -204,13 +231,20 @@ export class OverviewService {
       where: { property_id: property.id },
       order: { date: 'ASC' },
     });
-    const inRange = (r: DailyMetric, p: Period) => r.date >= p.start && r.date <= p.end;
+    const inRange = (r: DailyMetric, p: Period) =>
+      r.date >= p.start && r.date <= p.end;
     const current = aggregate(rows.filter((r) => inRange(r, period)));
     const previous = aggregate(rows.filter((r) => inRange(r, prev)));
 
     const breakdowns: Partial<Record<Dimension, DimensionBreakdown>> = {};
     for (const dimension of DIMENSIONS) {
-      breakdowns[dimension] = await this.breakdown(property.id, dimension, period, current, keyFilters[dimension]);
+      breakdowns[dimension] = await this.breakdown(
+        property.id,
+        dimension,
+        period,
+        current,
+        keyFilters[dimension],
+      );
     }
 
     return {
@@ -248,7 +282,13 @@ export class OverviewService {
   ): Promise<DimensionBreakdown> {
     const qb = this.dims
       .createQueryBuilder('m')
-      .select(['m.key_text AS key_text', 'm.date AS date', 'm.clicks AS clicks', 'm.impressions AS impressions', 'm.position AS position'])
+      .select([
+        'm.key_text AS key_text',
+        'm.date AS date',
+        'm.clicks AS clicks',
+        'm.impressions AS impressions',
+        'm.position AS position',
+      ])
       .where('m.property_id = :propertyId', { propertyId })
       .andWhere('m.dimension = :dimension', { dimension })
       .andWhere('m.date BETWEEN :start AND :end', period);
@@ -258,14 +298,22 @@ export class OverviewService {
     if (keyFilter?.exclude) {
       qb.andWhere('m.key_text NOT REGEXP :exc', { exc: keyFilter.exclude });
     }
-    let rows: { key_text: string; date: string; clicks: number; impressions: number; position: number }[];
+    let rows: {
+      key_text: string;
+      date: string;
+      clicks: number;
+      impressions: number;
+      position: number;
+    }[];
     try {
       rows = await qb.getRawMany();
     } catch (err) {
       // MySQL rejects ICU-invalid patterns at execution time (ER_REGEXP_*)
       const code = (err as { code?: string }).code ?? '';
       if (code.startsWith('ER_REGEXP')) {
-        throw new BadRequestException(`${dimension} filter: ${(err as Error).message}`);
+        throw new BadRequestException(
+          `${dimension} filter: ${(err as Error).message}`,
+        );
       }
       throw err;
     }
@@ -281,15 +329,23 @@ export class OverviewService {
     const dates = new Set(rows.map((r) => String(r.date).slice(0, 10)));
     const sorted = [...dates].sort();
     const dimTotals = totals.reduce(
-      (acc, t) => ({ clicks: acc.clicks + t.clicks, impressions: acc.impressions + t.impressions }),
+      (acc, t) => ({
+        clicks: acc.clicks + t.clicks,
+        impressions: acc.impressions + t.impressions,
+      }),
       { clicks: 0, impressions: 0 },
     );
-    const applied = keyFilter && (keyFilter.include || keyFilter.exclude) ? { include: keyFilter.include, exclude: keyFilter.exclude } : undefined;
+    const applied =
+      keyFilter && (keyFilter.include || keyFilter.exclude)
+        ? { include: keyFilter.include, exclude: keyFilter.exclude }
+        : undefined;
     return {
       rows: totals.slice(0, TOP_LIMIT),
       filters: applied,
       coverage: coverage(dimTotals, propertyTotals),
-      stored: sorted.length ? { start: sorted[0], end: sorted[sorted.length - 1] } : null,
+      stored: sorted.length
+        ? { start: sorted[0], end: sorted[sorted.length - 1] }
+        : null,
       days: sorted.length,
     };
   }

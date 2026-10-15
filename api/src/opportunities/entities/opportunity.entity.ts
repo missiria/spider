@@ -22,7 +22,12 @@ export const OPPORTUNITY_RULES = [
 ] as const;
 export type OpportunityRule = (typeof OPPORTUNITY_RULES)[number];
 
-export const OPPORTUNITY_STATUSES = ['open', 'in_progress', 'done', 'dismissed'] as const;
+export const OPPORTUNITY_STATUSES = [
+  'open',
+  'in_progress',
+  'done',
+  'dismissed',
+] as const;
 export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 
 export const OPPORTUNITY_PRIORITIES = ['low', 'medium', 'high'] as const;

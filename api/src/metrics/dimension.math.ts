@@ -17,7 +17,10 @@ export interface KeyTotals {
 
 /** Sum rows per key; CTR = Σclicks/Σimpressions; position = impressions-weighted mean. */
 export function aggregateByKey(rows: DimRow[]): KeyTotals[] {
-  const acc = new Map<string, { clicks: number; impressions: number; weighted: number }>();
+  const acc = new Map<
+    string,
+    { clicks: number; impressions: number; weighted: number }
+  >();
   for (const r of rows) {
     const a = acc.get(r.key_text) ?? { clicks: 0, impressions: 0, weighted: 0 };
     a.clicks += r.clicks;
@@ -33,7 +36,12 @@ export function aggregateByKey(rows: DimRow[]): KeyTotals[] {
       ctr: a.impressions > 0 ? a.clicks / a.impressions : 0,
       position: a.impressions > 0 ? a.weighted / a.impressions : 0,
     }))
-    .sort((x, y) => y.clicks - x.clicks || y.impressions - x.impressions || x.key.localeCompare(y.key));
+    .sort(
+      (x, y) =>
+        y.clicks - x.clicks ||
+        y.impressions - x.impressions ||
+        x.key.localeCompare(y.key),
+    );
 }
 
 /**
@@ -45,7 +53,13 @@ export function coverage(
   propertyTotals: { clicks: number; impressions: number },
 ): { clicks: number | null; impressions: number | null } {
   return {
-    clicks: propertyTotals.clicks > 0 ? dimensionTotals.clicks / propertyTotals.clicks : null,
-    impressions: propertyTotals.impressions > 0 ? dimensionTotals.impressions / propertyTotals.impressions : null,
+    clicks:
+      propertyTotals.clicks > 0
+        ? dimensionTotals.clicks / propertyTotals.clicks
+        : null,
+    impressions:
+      propertyTotals.impressions > 0
+        ? dimensionTotals.impressions / propertyTotals.impressions
+        : null,
   };
 }

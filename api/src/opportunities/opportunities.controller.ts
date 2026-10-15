@@ -1,7 +1,32 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
-import { IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, ValidateIf } from 'class-validator';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { AuthUser } from '../auth/jwt.strategy';
-import { OPPORTUNITY_PRIORITIES, OPPORTUNITY_STATUSES, OpportunityPriority, OpportunityStatus } from './entities/opportunity.entity';
+import {
+  OPPORTUNITY_PRIORITIES,
+  OPPORTUNITY_STATUSES,
+  OpportunityPriority,
+  OpportunityStatus,
+} from './entities/opportunity.entity';
 import { OpportunitiesService } from './opportunities.service';
 
 class UpdateOpportunityDto {
@@ -74,7 +99,11 @@ export class OpportunitiesController {
   }
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Req() req: { user: AuthUser }, @Body() body: UpdateOpportunityDto) {
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: { user: AuthUser },
+    @Body() body: UpdateOpportunityDto,
+  ) {
     return this.opportunities.update(id, req.user.userId, body);
   }
 }

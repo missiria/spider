@@ -48,6 +48,11 @@ describe('metrics.math', () => {
   });
 
   it('empty input aggregates to zeros, not NaN', () => {
-    expect(aggregate([])).toEqual({ clicks: 0, impressions: 0, ctr: 0, position: 0 });
+    expect(aggregate([])).toEqual({
+      clicks: 0,
+      impressions: 0,
+      ctr: 0,
+      position: 0,
+    });
   });
 });

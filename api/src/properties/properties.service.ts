@@ -104,7 +104,10 @@ export class PropertiesService {
    */
   async remove(id: number): Promise<void> {
     const property = await this.get(id);
-    await this.dataSource.query('DELETE FROM saved_views WHERE property_id = ?', [property.id]);
+    await this.dataSource.query(
+      'DELETE FROM saved_views WHERE property_id = ?',
+      [property.id],
+    );
     await this.repo.remove(property);
   }
 

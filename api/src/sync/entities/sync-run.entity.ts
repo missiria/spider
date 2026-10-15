@@ -30,7 +30,11 @@ export class SyncRun {
   @Column({ type: 'enum', enum: ['backfill', 'incremental', 'top'] })
   kind: SyncKind;
 
-  @Column({ type: 'enum', enum: ['running', 'ok', 'failed'], default: 'running' })
+  @Column({
+    type: 'enum',
+    enum: ['running', 'ok', 'failed'],
+    default: 'running',
+  })
   status: SyncStatus;
 
   @CreateDateColumn({ type: 'timestamp' })

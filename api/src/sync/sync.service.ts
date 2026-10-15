@@ -5,10 +5,18 @@ import { Repository } from 'typeorm';
 import { createHash } from 'node:crypto';
 import { GscDimension, GscPagedResult, GscService } from '../gsc/gsc.service';
 import { DailyMetric } from '../metrics/entities/daily-metric.entity';
-import { Dimension, DimensionMetric } from '../metrics/entities/dimension-metric.entity';
+import {
+  Dimension,
+  DimensionMetric,
+} from '../metrics/entities/dimension-metric.entity';
 import { Property } from '../properties/entities/property.entity';
 import { PropertiesService } from '../properties/properties.service';
-import { addDays, defaultEndDate, Period, periodEndingOn } from '../metrics/metrics.math';
+import {
+  addDays,
+  defaultEndDate,
+  Period,
+  periodEndingOn,
+} from '../metrics/metrics.math';
 import { SyncKind, SyncRun } from './entities/sync-run.entity';
 
 /** GSC keeps 16 months; 487 days of daily totals fit in one 25k-row call. */
@@ -19,7 +27,10 @@ const INCREMENTAL_DAYS = 10;
 const CHUNK_DAYS = 31;
 
 /** Which stored dimension maps to which API dimension. */
-const DIMENSION_API: Record<Exclude<Dimension, 'search_appearance'>, GscDimension> = {
+const DIMENSION_API: Record<
+  Exclude<Dimension, 'search_appearance'>,
+  GscDimension
+> = {
   query: 'query',
   page: 'page',
   country: 'country',
@@ -48,25 +59,43 @@ export class SyncService implements OnModuleInit {
   private readonly appearanceBackfillDays: number;
 
   constructor(
-    @InjectRepository(DailyMetric) private readonly daily: Repository<DailyMetric>,
-    @InjectRepository(DimensionMetric) private readonly dims: Repository<DimensionMetric>,
+    @InjectRepository(DailyMetric)
+    private readonly daily: Repository<DailyMetric>,
+    @InjectRepository(DimensionMetric)
+    private readonly dims: Repository<DimensionMetric>,
     @InjectRepository(SyncRun) private readonly runs: Repository<SyncRun>,
     private readonly gsc: GscService,
     private readonly properties: PropertiesService,
     config: ConfigService,
   ) {
-    this.dimensionBackfillDays = clampInt(config.get('GSC_DIMENSION_BACKFILL_DAYS'), 90, 1, BACKFILL_DAYS);
-    this.appearanceBackfillDays = clampInt(config.get('GSC_APPEARANCE_BACKFILL_DAYS'), 28, 1, BACKFILL_DAYS);
+    this.dimensionBackfillDays = clampInt(
+      config.get('GSC_DIMENSION_BACKFILL_DAYS'),
+      90,
+      1,
+      BACKFILL_DAYS,
+    );
+    this.appearanceBackfillDays = clampInt(
+      config.get('GSC_APPEARANCE_BACKFILL_DAYS'),
+      28,
+      1,
+      BACKFILL_DAYS,
+    );
   }
 
   /** Runs left 'running' by a crash or restart can never finish: mark them. */
   async onModuleInit(): Promise<void> {
     const stale = await this.runs.update(
       { status: 'running' },
-      { status: 'failed', error: 'Interrupted by an API restart', finished_at: new Date() },
+      {
+        status: 'failed',
+        error: 'Interrupted by an API restart',
+        finished_at: new Date(),
+      },
     );
     if (stale.affected) {
-      this.logger.warn(`${stale.affected} interrupted sync run(s) marked failed`);
+      this.logger.warn(
+        `${stale.affected} interrupted sync run(s) marked failed`,
+      );
     }
   }
 
@@ -84,7 +113,11 @@ export class SyncService implements OnModuleInit {
   incremental(property: Property): Promise<SyncRun> {
     const end = defaultEndDate();
     const window = periodEndingOn(end, INCREMENTAL_DAYS);
-    return this.run(property, 'incremental', { daily: window, dimensions: window, appearance: window });
+    return this.run(property, 'incremental', {
+      daily: window,
+      dimensions: window,
+      appearance: window,
+    });
   }
 
   isRunning(propertyId: number): boolean {
@@ -116,11 +149,19 @@ export class SyncService implements OnModuleInit {
         range_end: ranges.daily.end,
       }),
     );
-    const details: RunDetails = { daily: { rows: 0, calls: 0 }, dimensions: {} };
+    const details: RunDetails = {
+      daily: { rows: 0, calls: 0 },
+      dimensions: {},
+    };
 
     try {
       // 1. daily totals
-      const dailyRows = await this.gsc.query(property.site_url, ranges.daily.start, ranges.daily.end, ['date']);
+      const dailyRows = await this.gsc.query(
+        property.site_url,
+        ranges.daily.start,
+        ranges.daily.end,
+        ['date'],
+      );
       details.daily = { rows: dailyRows.length, calls: 1 };
       await this.upsertChunks(
         this.daily,
@@ -138,11 +179,20 @@ export class SyncService implements OnModuleInit {
       );
 
       // 2. date × dimension, chunked by month, paginated
-      for (const dimension of Object.keys(DIMENSION_API) as (keyof typeof DIMENSION_API)[]) {
-        details.dimensions[dimension] = await this.syncDimension(property, dimension, ranges.dimensions);
+      for (const dimension of Object.keys(
+        DIMENSION_API,
+      ) as (keyof typeof DIMENSION_API)[]) {
+        details.dimensions[dimension] = await this.syncDimension(
+          property,
+          dimension,
+          ranges.dimensions,
+        );
       }
       // 3. search appearance (one call per day)
-      details.dimensions.search_appearance = await this.syncAppearance(property, ranges.appearance);
+      details.dimensions.search_appearance = await this.syncAppearance(
+        property,
+        ranges.appearance,
+      );
 
       const firstDate = await this.daily
         .createQueryBuilder('d')
@@ -158,13 +208,23 @@ export class SyncService implements OnModuleInit {
       }
       await this.properties.save(property);
 
-      const dimRows = Object.values(details.dimensions).reduce((n, d) => n + (d?.rows ?? 0), 0);
-      const calls = details.daily.calls + Object.values(details.dimensions).reduce((n, d) => n + (d?.calls ?? 0), 0);
+      const dimRows = Object.values(details.dimensions).reduce(
+        (n, d) => n + (d?.rows ?? 0),
+        0,
+      );
+      const calls =
+        details.daily.calls +
+        Object.values(details.dimensions).reduce(
+          (n, d) => n + (d?.calls ?? 0),
+          0,
+        );
       run.status = 'ok';
       run.rows_upserted = dailyRows.length + dimRows;
       run.finished_at = new Date();
       run.details = JSON.stringify(details);
-      this.logger.log(`${kind} ${property.site_url}: ${dailyRows.length} daily + ${dimRows} dimension rows in ${calls} calls`);
+      this.logger.log(
+        `${kind} ${property.site_url}: ${dailyRows.length} daily + ${dimRows} dimension rows in ${calls} calls`,
+      );
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       run.status = 'failed';
@@ -176,7 +236,9 @@ export class SyncService implements OnModuleInit {
         property.last_error = `${kind} failed: ${message}`.slice(0, 2000);
         await this.properties.save(property);
       } catch (saveErr) {
-        this.logger.error(`could not record the error on the property: ${(saveErr as Error).message}`);
+        this.logger.error(
+          `could not record the error on the property: ${(saveErr as Error).message}`,
+        );
       }
     } finally {
       this.inFlight.delete(property.id);
@@ -184,7 +246,9 @@ export class SyncService implements OnModuleInit {
     try {
       return await this.runs.save(run);
     } catch (saveErr) {
-      this.logger.error(`could not save sync run: ${(saveErr as Error).message}`);
+      this.logger.error(
+        `could not save sync run: ${(saveErr as Error).message}`,
+      );
       return run;
     }
   }
@@ -194,42 +258,77 @@ export class SyncService implements OnModuleInit {
     dimension: keyof typeof DIMENSION_API,
     period: Period,
   ): Promise<DimensionRunDetail> {
-    const detail: DimensionRunDetail = { rows: 0, calls: 0, truncated: false, days: 0 };
+    const detail: DimensionRunDetail = {
+      rows: 0,
+      calls: 0,
+      truncated: false,
+      days: 0,
+    };
     for (const chunk of chunkPeriod(period, CHUNK_DAYS)) {
-      const result = await this.gsc.queryAll(property.site_url, chunk.start, chunk.end, ['date', DIMENSION_API[dimension]]);
+      const result = await this.gsc.queryAll(
+        property.site_url,
+        chunk.start,
+        chunk.end,
+        ['date', DIMENSION_API[dimension]],
+      );
       await this.storeRows(property.id, dimension, result);
       detail.rows += result.rows.length;
       detail.calls += result.calls;
       detail.truncated = detail.truncated || result.truncated;
       detail.days += daysIn(chunk);
       if (result.truncated) {
-        this.logger.warn(`${property.site_url} ${dimension} ${chunk.start}..${chunk.end}: hit the page cap, rows beyond it are not stored`);
+        this.logger.warn(
+          `${property.site_url} ${dimension} ${chunk.start}..${chunk.end}: hit the page cap, rows beyond it are not stored`,
+        );
       }
     }
     return detail;
   }
 
-  private async syncAppearance(property: Property, period: Period): Promise<DimensionRunDetail> {
-    const result = await this.gsc.querySearchAppearanceByDay(property.site_url, period.start, period.end);
+  private async syncAppearance(
+    property: Property,
+    period: Period,
+  ): Promise<DimensionRunDetail> {
+    const result = await this.gsc.querySearchAppearanceByDay(
+      property.site_url,
+      period.start,
+      period.end,
+    );
     await this.storeRows(property.id, 'search_appearance', result);
-    return { rows: result.rows.length, calls: result.calls, truncated: false, days: daysIn(period) };
+    return {
+      rows: result.rows.length,
+      calls: result.calls,
+      truncated: false,
+      days: daysIn(period),
+    };
   }
 
-  private async storeRows(propertyId: number, dimension: Dimension, result: GscPagedResult): Promise<void> {
+  private async storeRows(
+    propertyId: number,
+    dimension: Dimension,
+    result: GscPagedResult,
+  ): Promise<void> {
     const entities = result.rows.map((r) =>
       this.dims.create({
         property_id: propertyId,
         date: r.keys[0],
         dimension,
         key_text: (r.keys[1] ?? '').slice(0, 2048),
-        key_hash: createHash('md5').update(r.keys[1] ?? '').digest('hex'),
+        key_hash: createHash('md5')
+          .update(r.keys[1] ?? '')
+          .digest('hex'),
         clicks: Math.round(r.clicks),
         impressions: Math.round(r.impressions),
         ctr: r.ctr,
         position: r.position,
       }),
     );
-    await this.upsertChunks(this.dims, entities, ['property_id', 'date', 'dimension', 'key_hash']);
+    await this.upsertChunks(this.dims, entities, [
+      'property_id',
+      'date',
+      'dimension',
+      'key_hash',
+    ]);
   }
 
   private async upsertChunks<T extends { property_id: number }>(
@@ -244,7 +343,12 @@ export class SyncService implements OnModuleInit {
   }
 }
 
-function clampInt(raw: unknown, fallback: number, min: number, max: number): number {
+function clampInt(
+  raw: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const n = Number.parseInt(String(raw ?? ''), 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
@@ -259,7 +363,8 @@ function daysIn(p: Period): number {
 export function* chunkPeriod(p: Period, days: number): Generator<Period> {
   let start = p.start;
   while (start <= p.end) {
-    const end = addDays(start, days - 1) < p.end ? addDays(start, days - 1) : p.end;
+    const end =
+      addDays(start, days - 1) < p.end ? addDays(start, days - 1) : p.end;
     yield { start, end };
     start = addDays(end, 1);
   }

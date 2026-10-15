@@ -10,7 +10,13 @@ import {
 import { Property } from '../../properties/entities/property.entity';
 
 /** One GSC dimension per row set. `search_appearance` cannot be combined with other dimensions in the API. */
-export const DIMENSIONS = ['query', 'page', 'country', 'device', 'search_appearance'] as const;
+export const DIMENSIONS = [
+  'query',
+  'page',
+  'country',
+  'device',
+  'search_appearance',
+] as const;
 export type Dimension = (typeof DIMENSIONS)[number];
 
 /**
@@ -18,7 +24,12 @@ export type Dimension = (typeof DIMENSIONS)[number];
  * Sums over a period give top pages/queries/countries/devices for any date range.
  */
 @Entity('dimension_metrics')
-@Unique('UQ_dimension_metrics_row', ['property_id', 'date', 'dimension', 'key_hash'])
+@Unique('UQ_dimension_metrics_row', [
+  'property_id',
+  'date',
+  'dimension',
+  'key_hash',
+])
 @Index('IDX_dimension_metrics_lookup', ['property_id', 'dimension', 'date'])
 export class DimensionMetric {
   @PrimaryGeneratedColumn({ type: 'bigint' })

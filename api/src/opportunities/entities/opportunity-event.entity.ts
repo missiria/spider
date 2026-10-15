@@ -38,7 +38,15 @@ export class OpportunityEvent {
 
   @Column({
     type: 'enum',
-    enum: ['created', 'evidence_updated', 'status', 'priority', 'assignee', 'due_date', 'note'],
+    enum: [
+      'created',
+      'evidence_updated',
+      'status',
+      'priority',
+      'assignee',
+      'due_date',
+      'note',
+    ],
   })
   type: OpportunityEventType;
 

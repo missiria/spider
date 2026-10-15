@@ -39,9 +39,13 @@ export function tokenFromCookie(req: Request): string | null {
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromExtractors([ExtractJwt.fromAuthHeaderAsBearerToken(), tokenFromCookie]),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        tokenFromCookie,
+      ]),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET') || 'default_dev_secret',
+      secretOrKey:
+        configService.get<string>('JWT_SECRET') || 'default_dev_secret',
     });
   }
 
