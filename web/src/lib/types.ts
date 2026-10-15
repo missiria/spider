@@ -118,3 +118,11 @@ export interface AuthResponse {
   token: string;
   user: { id: number; email: string; name: string; role: string };
 }
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  created_at: string;
+}

@@ -13,7 +13,7 @@ export function FleetChart({ series, topIds }: { series: FleetSeries; topIds: nu
 
   const lines = useMemo(
     () => [
-      { key: "total", name: "Fleet total", color: "#0f172a", width: 2.5 },
+      { key: "total", name: "Fleet total", color: "var(--chart-total)", width: 2.5 },
       ...series.properties.map((p, i) => ({ key: String(p.id), name: p.display_name, color: PALETTE[i % PALETTE.length], width: 1.5 })),
     ],
     [series.properties],
@@ -36,9 +36,9 @@ export function FleetChart({ series, topIds }: { series: FleetSeries; topIds: nu
       <div className="h-72 w-full" role="img" aria-label="Daily clicks per property">
         <ResponsiveContainer>
           <LineChart data={series.points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 12 }} minTickGap={24} />
-            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => formatInt(v)} width={48} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+            <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 12, fill: "var(--muted)" }} stroke="var(--chart-grid)" minTickGap={24} />
+            <YAxis tick={{ fontSize: 12, fill: "var(--muted)" }} stroke="var(--chart-grid)" tickFormatter={(v: number) => formatInt(v)} width={48} />
             <Tooltip formatter={(v) => formatInt(Number(v))} labelFormatter={(l) => String(l)} />
             <Legend content={() => null} />
             {lines

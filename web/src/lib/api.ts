@@ -7,6 +7,7 @@ import type {
   PropertyListResponse,
   PropertyRow,
   Settings,
+  User,
 } from "./types";
 
 export const TOKEN_COOKIE = "token";
@@ -98,5 +99,10 @@ export const resyncProperty = (id: number) =>
     .then((r) => r.data);
 
 export const deleteProperty = (id: number) => api.delete(`/properties/${id}`);
+
+export const getMe = () => api.get<User>("/auth/me").then((r) => r.data);
+
+export const updateMe = (body: { name?: string; email?: string }) =>
+  api.patch<User>("/auth/me", body).then((r) => r.data);
 
 export const getSettings = () => api.get<Settings>("/settings").then((r) => r.data);

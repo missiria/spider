@@ -1,15 +1,16 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ExternalLink } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Search } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Button, Card, ErrorBox, KpiCard, Spinner, StatusChip } from "@/components/ui";
 import { checkProperty, errorMessage, getProperty, getSettings, resyncProperty } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt, formatPct, formatPosition, shortDate } from "@/lib/format";
+import { applyTopState, DEFAULT_TOP_STATE, toggleTopSort, type TopSortKey, type TopTableState } from "@/lib/topTable";
 import type { PropertyDetail, TopRow } from "@/lib/types";
 
 function hostOf(siteUrl: string): string {
@@ -29,10 +30,57 @@ function googleSiteSearch(host: string, keyword: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(`site:${host} "${keyword}"`)}`;
 }
 
+const TOP_COLUMNS: { key: TopSortKey; label: (kind: "page" | "query") => string; align: "left" | "right"; title?: string }[] = [
+  { key: "key_text", label: (k) => (k === "page" ? "Page" : "Query"), align: "left" },
+  { key: "clicks", label: () => "Clicks", align: "right" },
+  { key: "impressions", label: () => "Impr.", align: "right" },
+  { key: "ctr", label: () => "CTR", align: "right" },
+  { key: "position", label: () => "Pos.", align: "right", title: "Average position (lower is better)" },
+];
+
 function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; kind: "page" | "query"; host: string }) {
+  const [state, setState] = useState<TopTableState>(DEFAULT_TOP_STATE);
+  const visible = useMemo(() => applyTopState(rows, state), [rows, state]);
+  const filtered = state.search !== "" || state.minClicks > 0;
+
   return (
     <Card>
-      <div className="border-b border-border px-4 py-3 font-medium">{title}</div>
+      <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+        <h2 className="font-medium">{title}</h2>
+        <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
+            <input
+              type="search"
+              value={state.search}
+              onChange={(e) => setState((s) => ({ ...s, search: e.target.value }))}
+              placeholder={kind === "page" ? "Filter pages…" : "Filter queries…"}
+              aria-label={kind === "page" ? "Filter pages" : "Filter queries"}
+              className="w-52 rounded-md border border-border py-1.5 pl-8 pr-2 outline-none focus:border-primary"
+            />
+          </label>
+          <select
+            value={state.minClicks}
+            onChange={(e) => setState((s) => ({ ...s, minClicks: Number(e.target.value) }))}
+            aria-label="Minimum clicks"
+            className="rounded-md border border-border bg-surface px-2 py-1.5 outline-none focus:border-primary"
+          >
+            <option value={0}>Any clicks</option>
+            <option value={1}>≥ 1 click</option>
+            <option value={5}>≥ 5 clicks</option>
+            <option value={10}>≥ 10 clicks</option>
+            <option value={50}>≥ 50 clicks</option>
+          </select>
+          <span className="text-xs text-muted">
+            {visible.length} of {rows.length}
+            {filtered && (
+              <button type="button" onClick={() => setState((s) => ({ ...DEFAULT_TOP_STATE, sortKey: s.sortKey, sortDir: s.sortDir }))} className="ml-2 text-primary hover:underline">
+                Clear
+              </button>
+            )}
+          </span>
+        </div>
+      </div>
       {rows.length === 0 ? (
         <div className="px-4 py-8 text-center text-sm text-muted">No rows yet.</div>
       ) : (
@@ -47,19 +95,33 @@ function TopTable({ title, rows, kind, host }: { title: string; rows: TopRow[]; 
               <col className="w-36" />
             </colgroup>
             <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                <th className="px-4 py-2 font-medium">{kind === "page" ? "Page" : "Query"}</th>
-                <th className="px-4 py-2 text-right font-medium">Clicks</th>
-                <th className="px-4 py-2 text-right font-medium">Impr.</th>
-                <th className="px-4 py-2 text-right font-medium">CTR</th>
-                <th className="px-4 py-2 text-right font-medium">Pos.</th>
+              <tr className="border-b border-border text-xs uppercase tracking-wide text-muted">
+                {TOP_COLUMNS.map((col) => {
+                  const active = state.sortKey === col.key;
+                  const Icon = active ? (state.sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+                  return (
+                    <th key={col.key} scope="col" className={`px-4 py-2 font-medium ${col.align === "right" ? "text-right" : "text-left"}`} aria-sort={active ? (state.sortDir === "asc" ? "ascending" : "descending") : "none"}>
+                      <button type="button" title={col.title} onClick={() => setState((s) => toggleTopSort(s, col.key))} className={`inline-flex items-center gap-1 hover:text-foreground ${active ? "text-foreground" : ""} ${col.align === "right" ? "flex-row-reverse" : ""}`}>
+                        {col.label(kind)}
+                        <Icon className={`h-3 w-3 ${active ? "" : "opacity-40"}`} aria-hidden />
+                      </button>
+                    </th>
+                  );
+                })}
                 <th className="px-4 py-2 text-right font-medium">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, 50).map((r) => (
+              {visible.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-muted">
+                    No row matches these filters.
+                  </td>
+                </tr>
+              )}
+              {visible.map((r) => (
                 <tr key={r.id} className="border-b border-border/60 hover:bg-surface-muted/60">
                   <td className="px-4 py-1.5 break-all" title={r.key_text}>
                     {kind === "page" ? pathOf(r.key_text) : r.key_text}
@@ -211,13 +273,13 @@ export default function PropertyPage() {
           <div className="h-72 w-full" role="img" aria-label="Daily clicks and impressions">
             <ResponsiveContainer>
               <LineChart data={data.series} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 12 }} minTickGap={24} />
-                <YAxis yAxisId="left" tick={{ fontSize: 12 }} width={48} tickFormatter={(v: number) => formatInt(v)} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} width={56} tickFormatter={(v: number) => formatInt(v)} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 12, fill: "var(--muted)" }} stroke="var(--chart-grid)" minTickGap={24} />
+                <YAxis yAxisId="left" tick={{ fontSize: 12, fill: "var(--muted)" }} stroke="var(--chart-grid)" width={48} tickFormatter={(v: number) => formatInt(v)} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: "var(--muted)" }} stroke="var(--chart-grid)" width={56} tickFormatter={(v: number) => formatInt(v)} />
                 <Tooltip formatter={(v) => formatInt(Number(v))} />
-                <Line yAxisId="left" type="monotone" dataKey="clicks" name="Clicks" stroke="#4f46e5" strokeWidth={2} dot={false} isAnimationActive={false} />
-                <Line yAxisId="right" type="monotone" dataKey="impressions" name="Impressions" stroke="#94a3b8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                <Line yAxisId="left" type="monotone" dataKey="clicks" name="Clicks" stroke="var(--primary)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Line yAxisId="right" type="monotone" dataKey="impressions" name="Impressions" stroke="var(--chart-secondary)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
