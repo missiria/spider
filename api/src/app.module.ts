@@ -34,6 +34,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
       synchronize: process.env.TYPEORM_SYNCHRONIZE === 'true',
       migrationsRun: process.env.TYPEORM_MIGRATIONS_RUN === 'true',
       autoLoadEntities: true,
+      // DATE columns come back as 'YYYY-MM-DD' strings, not JS Dates in local time
+      dateStrings: ['DATE'],
       retryAttempts: 10,
       retryDelay: 3000,
     }),

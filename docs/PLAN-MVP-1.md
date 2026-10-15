@@ -46,23 +46,26 @@ daily API quota (Search Analytics: 1,200 QPM per site, effectively unlimited per
 volume) and the same identity in their GSC user list. Acceptable for an invite-only beta.
 Per-workspace service accounts or OAuth come with Sprint 2.
 
-## 3. Data model (Prisma, MySQL 8)
+## 3. Data model (TypeORM entities, MySQL 8)
 
 ```
-Workspace      id, name, slug, createdAt
-Property       id, workspaceId, siteUrl (unique per workspace), displayName,
-               status PENDING|CONNECTED|REVOKED|ERROR, connectedAt, lastCheckedAt,
-               lastSyncAt, dataSince (first date with rows), lastError
-DailyMetric    id, propertyId, date, clicks, impressions, ctr, position
-               @@unique([propertyId, date])
-TopRow         id, propertyId, periodStart, periodEnd, dimension PAGE|QUERY, key,
-               clicks, impressions, ctr, position   @@unique([propertyId, periodStart, periodEnd, dimension, key])
-SyncRun        id, propertyId, kind BACKFILL|INCREMENTAL|TOP, startedAt, finishedAt,
-               status RUNNING|OK|FAILED, rowsUpserted, error
+users          id, email (unique), password_hash, name, role admin|member, is_active, timestamps
+workspaces     id, slug (unique), name, created_at
+properties     id, workspace_id, site_url (unique per workspace), display_name,
+               status pending|connected|revoked|error, connected_at, last_checked_at,
+               last_sync_at, data_since (first date with rows), last_error, timestamps
+daily_metrics  id, property_id, date, clicks, impressions, ctr, position   UNIQUE(property_id, date)
+top_rows       id, property_id, period_start, period_end, dimension page|query, key_text, key_hash (md5),
+               clicks, impressions, ctr, position   UNIQUE(property_id, period_start, period_end, dimension, key_hash)
+sync_runs      id, property_id, kind backfill|incremental|top, status running|ok|failed,
+               started_at, finished_at, rows_upserted, range_start, range_end, error
 ```
 
-`Workspace` and `workspaceId` exist from day one so Sprint 1 adds users/memberships without a
-data migration. MVP-1 runs with a single workspace created by `prisma db seed`.
+Schema lives in `api/src/**/*.entity.ts`, migrations in `api/src/database/migrations`
+(initial `Init` migration generated 2026-10-15). `workspaces` / `workspace_id` exist from day
+one so Sprint 1 adds memberships without a data migration. MVP-1 runs with a single workspace
+and an admin user created at first boot (`DefaultAdminSeeder`). DATE columns are read as
+`YYYY-MM-DD` strings (`dateStrings: ['DATE']`), never as local-time JS Dates.
 
 ## 4. Sync
 
@@ -90,31 +93,33 @@ data migration. MVP-1 runs with a single workspace created by `prisma db seed`.
 
 ## 6. Stack and conventions
 
-- **Next.js 15 App Router + TypeScript + Tailwind v4**, single deployable Node app
-  (epic rule). Server actions for mutations, Route Handlers for cron endpoints.
-- **Prisma + MySQL 8** (ADR-0001: the VPS already runs MySQL 8 for shark/go/leader; one
-  database engine in production. The epic suggested PostgreSQL; nothing in MVP-1 needs it).
-- `googleapis` for GSC, `recharts` for the chart, `zod` for input validation, `vitest` for tests.
-- `GSC_MOCK=1` serves fixtures from `fixtures/gsc/*.json` (recorded from the real 2026-10-15 pull)
-  so the UI, sync and tests run without credentials.
-- Local dev: `docker compose up db` (MySQL 8) or any local MySQL via `DATABASE_URL`. No Redis.
-- Auth in MVP-1 (ADR-0003): single operator password in `ADMIN_PASSWORD`, checked in
-  `middleware.ts` with an httpOnly cookie. Replaced by real accounts in Sprint 1 (MISS-0089).
-- Prod later: `spider.missiria.dev`, PM2 process `spider-web` behind nginx, deploy via the
-  existing GitHub Actions → VPS pattern. Not part of MVP-1.
+- **eksneks-init monorepo** (ADR-0001, owner decision 2026-10-15): `api/` NestJS 11 +
+  TypeORM 0.3 + mysql2, `web/` Next.js 15 App Router + Tailwind v4 + recharts + axios, same
+  tooling as shark-app / leader-app (Husky in `web/.husky`, Makefile, PM2 ecosystem, release-please).
+- `googleapis` in the API only; `class-validator` DTOs; jest (api) + vitest (web).
+- `GSC_MOCK=1` serves fixtures from `api/fixtures/gsc` (16 real properties recorded 2026-10-15:
+  16 months of daily totals + top 500 pages/queries for the last 28 days) so UI, sync and tests
+  run without credentials.
+- Local dev: MySQL 8 on :3403 (`make docker-up`, or any local mysqld on that port). No Redis.
+- Auth in MVP-1 (ADR-0003): JWT login with a seeded admin, global guard, `@Public()` for
+  `/health` and `/auth/login`; web `middleware.ts` checks the `token` cookie.
+- Cron: `@nestjs/schedule` inside the API (every 10 min pending checks, 06:10 daily incremental).
+- Prod: `spider.missiria.dev` (A 81.17.98.31, Cloudflare proxied, set 2026-10-15), PM2
+  `spider-api` :8090 + `spider-web` :8091 behind nginx (`deploy/nginx/spider.conf`),
+  `.github/workflows/deploy.yml` → VPS `deploy spider`. VPS registration still to do.
 
 ## 7. Build order (one PR per step, each runnable)
 
-1. Scaffold: `create-next-app`, Tailwind, Prisma schema + first migration, seed workspace,
-   `.env.example`, README, vitest, CI (`npm run lint && npm run typecheck && npm test`).
-2. `lib/gsc.ts` client (service account, `listSites`, `queryDaily`, `queryTop`) + mock mode + fixtures.
-3. `lib/metrics.ts` period math + aggregation + tests.
-4. Properties: model, `/properties/new`, checker action, `/api/cron/check`.
-5. Sync: backfill + incremental + top rows, `SyncRun` status, `/api/cron/sync`.
-6. UI: `/` fleet table + chart + date range; `/properties/[id]`; `/settings`; empty/loading/error states.
-7. Hardening: password middleware, rate limit on cron endpoints, `npm audit`, README run-book.
+1. ✅ Scaffold with the `eksneks-init` skill (web + api workspaces, TypeORM, Husky, Makefile, PM2, deploy/).
+2. ✅ `GscService` (service account, `listSites`, `query`) + `GSC_MOCK` fixtures.
+3. ✅ `metrics.math.ts` period math + aggregation + jest tests against the 2026-10-15 numbers.
+4. ✅ Properties: entity, normalize, CRUD, `checkAccess()` checker, 10-min cron.
+5. ✅ Sync: backfill + incremental + top rows, `sync_runs` audit, daily cron, interrupted-run cleanup.
+6. ✅ Web: `/` fleet table + chart + period picker, `/properties`, `/properties/new`, `/properties/[id]`, `/settings`, `/login`.
+7. ⏳ Hardening + deploy: VPS registration of `deploy spider`, env files, nginx, first prod run.
 
-Estimate: 7 steps, each 1–3 hours of agent work; MVP-1 demo-able after step 6.
+Status 2026-10-15 15:00: steps 1–6 done and verified locally in mock mode (all 16 properties
+match the hand-made fleet table). Step 7 needs the owner/VPS.
 
 ## 8. Acceptance (MVP-1)
 

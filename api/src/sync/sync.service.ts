@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'node:crypto';
@@ -22,7 +22,7 @@ const INCREMENTAL_DAYS = 10;
 const TOP_ROW_LIMIT = 500;
 
 @Injectable()
-export class SyncService {
+export class SyncService implements OnModuleInit {
   private readonly logger = new Logger(SyncService.name);
   private readonly inFlight = new Set<number>();
 
@@ -33,6 +33,17 @@ export class SyncService {
     private readonly gsc: GscService,
     private readonly properties: PropertiesService,
   ) {}
+
+  /** Runs left 'running' by a crash or restart can never finish: mark them. */
+  async onModuleInit(): Promise<void> {
+    const stale = await this.runs.update(
+      { status: 'running' },
+      { status: 'failed', error: 'Interrupted by an API restart', finished_at: new Date() },
+    );
+    if (stale.affected) {
+      this.logger.warn(`${stale.affected} interrupted sync run(s) marked failed`);
+    }
+  }
 
   /** Full history (16 months of daily totals) + top rows for the default period. */
   backfill(property: Property): Promise<SyncRun> {
@@ -99,13 +110,13 @@ export class SyncService {
 
       const firstDate = await this.daily
         .createQueryBuilder('d')
-        .select('MIN(d.date)', 'min')
+        .select("DATE_FORMAT(MIN(d.date), '%Y-%m-%d')", 'min')
         .where('d.property_id = :id', { id: property.id })
         .getRawOne<{ min: string | null }>();
 
       property.last_sync_at = new Date();
       property.last_error = null;
-      property.data_since = firstDate?.min ? String(firstDate.min).slice(0, 10) : null;
+      property.data_since = firstDate?.min ?? null;
       if (property.status === 'error') {
         property.status = 'connected';
       }
@@ -120,15 +131,24 @@ export class SyncService {
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       run.status = 'failed';
-      run.error = message;
+      run.error = message.slice(0, 2000);
       run.finished_at = new Date();
-      property.last_error = `${kind} failed: ${message}`;
-      await this.properties.save(property);
       this.logger.error(`${kind} ${property.site_url} failed: ${message}`);
+      try {
+        property.last_error = `${kind} failed: ${message}`.slice(0, 2000);
+        await this.properties.save(property);
+      } catch (saveErr) {
+        this.logger.error(`could not record the error on the property: ${(saveErr as Error).message}`);
+      }
     } finally {
       this.inFlight.delete(property.id);
     }
-    return this.runs.save(run);
+    try {
+      return await this.runs.save(run);
+    } catch (saveErr) {
+      this.logger.error(`could not save sync run: ${(saveErr as Error).message}`);
+      return run;
+    }
   }
 
   /** Top pages + top queries for a period; replaces the stored set for that period. */

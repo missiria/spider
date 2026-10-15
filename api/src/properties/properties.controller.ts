@@ -75,7 +75,7 @@ export class PropertiesController {
       await this.properties.checkAccess(property);
     if (justConnected) {
       // fire and forget: the UI polls the property for sync status
-      void this.sync.backfill(updated);
+      this.sync.backfill(updated).catch(() => undefined);
     }
     return { property: updated, justConnected };
   }
@@ -91,7 +91,9 @@ export class PropertiesController {
       return { started: false, reason: 'A sync is already running' };
     }
     const kind = property.data_since ? 'incremental' : 'backfill';
-    void (kind === 'backfill' ? this.sync.backfill(property) : this.sync.incremental(property));
+    (kind === 'backfill' ? this.sync.backfill(property) : this.sync.incremental(property)).catch(
+      () => undefined,
+    );
     return { started: true, kind };
   }
 

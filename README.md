@@ -9,7 +9,7 @@ Plan and decisions: `docs/PLAN-MVP-1.md`, `docs/adr/`.
 
 ```bash
 npm install
-make docker-up          # MySQL on :3403
+make docker-up          # MySQL on :3403 (or any local mysqld on 3403)
 cp api/.env.dist api/.env
 npm run dev:api         # API on :8012
 npm run dev:web         # Web on :3010
