@@ -7,6 +7,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as dotenv from 'dotenv';
 import { resolve } from 'node:path';
+// supertest is CommonJS and the api tsconfig has no esModuleInterop
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import request = require('supertest');
 import { DataSource } from 'typeorm';
 
