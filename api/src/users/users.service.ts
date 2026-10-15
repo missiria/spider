@@ -22,6 +22,10 @@ export class UsersService {
     return this.repo.count();
   }
 
+  listActive(): Promise<User[]> {
+    return this.repo.find({ where: { is_active: true }, order: { name: 'ASC' } });
+  }
+
   findById(id: number): Promise<User | null> {
     return this.repo.findOne({ where: { id } });
   }

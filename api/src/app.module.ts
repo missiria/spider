@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { DefaultAdminSeeder } from './bootstrap/default-admin.seeder';
 import { GscModule } from './gsc/gsc.module';
 import { HealthController } from './health/health.controller';
+import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { OverviewModule } from './overview/overview.module';
 import { PropertiesModule } from './properties/properties.module';
 import { SettingsController } from './settings/settings.controller';
@@ -48,6 +49,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     SyncModule,
     OverviewModule,
     ViewsModule,
+    OpportunitiesModule,
   ],
   controllers: [AppController, HealthController, SettingsController],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }, DefaultAdminSeeder],

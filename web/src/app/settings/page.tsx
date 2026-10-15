@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { AppShell } from "@/components/AppShell";
+import { RulesSettings } from "@/components/RulesSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Card, ErrorBox, Spinner } from "@/components/ui";
 import { errorMessage, getMe, getSettings, updateMe } from "@/lib/api";
@@ -86,6 +87,8 @@ export default function SettingsPage() {
               </div>
             </form>
           </Card>
+
+          <RulesSettings />
 
           <Card className="p-6">
             <h2 className="font-medium">Workspace</h2>

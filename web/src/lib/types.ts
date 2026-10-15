@@ -154,3 +154,67 @@ export interface KeyFilters {
   include_page?: string;
   exclude_page?: string;
 }
+
+export type OpportunityRule = "clicks_drop" | "impressions_drop" | "low_ctr" | "near_page_one" | "cannibalization";
+export type OpportunityStatus = "open" | "in_progress" | "done" | "dismissed";
+export type OpportunityPriority = "low" | "medium" | "high";
+export type OpportunitySubject = "property" | "page" | "query";
+
+export interface Opportunity {
+  id: number;
+  property_id: number;
+  rule: OpportunityRule;
+  subject: OpportunitySubject;
+  key_text: string;
+  status: OpportunityStatus;
+  priority: OpportunityPriority;
+  score: number;
+  confidence: "low" | "medium" | "high";
+  title: string;
+  reason: string;
+  suggested_action: string;
+  evidence: Record<string, unknown>;
+  assignee_id: number | null;
+  due_date: string | null;
+  completed_at: string | null;
+  dismissed_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface OpportunityEvent {
+  id: number;
+  user_id: number | null;
+  type: "created" | "evidence_updated" | "status" | "priority" | "assignee" | "due_date" | "note";
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface OpportunityImpact {
+  completed_on: string;
+  window_days: number;
+  before: { period: Period; totals: MetricTotals };
+  after: { period: Period; days_available: number; totals: MetricTotals | null };
+  note: string | null;
+}
+
+export interface OpportunityDetail extends Opportunity {
+  events: OpportunityEvent[];
+  impact: OpportunityImpact | null;
+}
+
+export interface OpportunityList {
+  items: Opportunity[];
+  counts: Record<OpportunityStatus, number>;
+  scanning: boolean;
+}
+
+export interface RuleConfig {
+  window_days: number;
+  clicks_drop: { enabled: boolean; min_previous_clicks: number; drop_ratio: number };
+  impressions_drop: { enabled: boolean; min_previous_impressions: number; drop_ratio: number };
+  low_ctr: { enabled: boolean; min_impressions: number; max_ctr: number; max_position: number };
+  near_page_one: { enabled: boolean; min_position: number; max_position: number; min_impressions: number };
+  cannibalization: { enabled: boolean; min_impressions: number; min_share: number };
+  regression_days: number;
+}

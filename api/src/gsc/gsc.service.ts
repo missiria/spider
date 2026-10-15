@@ -278,6 +278,8 @@ export class GscService {
       file = `dims/${host}.${dimensions[1]}.json`;
     } else if (dimensions[0] === 'searchAppearance') {
       file = `dims/${host}.searchAppearance.json`;
+    } else if (dimensions.length === 2 && dimensions[0] === 'query' && dimensions[1] === 'page') {
+      file = `top/${host}.query_page.json`;
     } else {
       file = `top/${host}.${dimensions[0]}.json`;
     }

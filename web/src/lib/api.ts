@@ -4,7 +4,11 @@ import type {
   FleetOverview,
   FleetSeries,
   KeyFilters,
+  Opportunity,
+  OpportunityDetail,
+  OpportunityList,
   PropertyDetail,
+  RuleConfig,
   SavedView,
   ViewScope,
   PropertyListResponse,
@@ -128,3 +132,30 @@ export const updateMe = (body: { name?: string; email?: string }) =>
   api.patch<User>("/auth/me", body).then((r) => r.data);
 
 export const getSettings = () => api.get<Settings>("/settings").then((r) => r.data);
+
+export interface OpportunityFilter {
+  status?: string;
+  property_id?: number;
+  rule?: string;
+  priority?: string;
+  subject?: string;
+  assignee_id?: number;
+}
+
+export const listOpportunities = (f: OpportunityFilter) =>
+  api.get<OpportunityList>("/opportunities", { params: compact(f) }).then((r) => r.data);
+
+export const getOpportunity = (id: number) => api.get<OpportunityDetail>(`/opportunities/${id}`).then((r) => r.data);
+
+export const updateOpportunity = (
+  id: number,
+  body: { status?: Opportunity["status"]; priority?: Opportunity["priority"]; assignee_id?: number | null; due_date?: string | null; note?: string },
+) => api.patch<OpportunityDetail>(`/opportunities/${id}`, body).then((r) => r.data);
+
+export const scanOpportunities = () =>
+  api.post<{ properties: number; created: number; updated: number; findings: number; skipped: number }>("/opportunities/scan").then((r) => r.data);
+
+export const getRules = () => api.get<RuleConfig>("/opportunities/rules").then((r) => r.data);
+export const putRules = (body: Partial<RuleConfig>) => api.put<RuleConfig>("/opportunities/rules", body).then((r) => r.data);
+
+export const listUsers = () => api.get<{ items: User[] }>("/users").then((r) => r.data);
