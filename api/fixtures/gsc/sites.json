@@ -1,0 +1,68 @@
+{
+ "siteEntry": [
+  {
+   "siteUrl": "https://www.x-iptv.fr/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-adulte-europe.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.puntomira.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.mundovea.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.lujo-vision.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-smarters-x.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.flashcanal.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-premium-europe.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-shark.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-smarters-europe.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-x.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-kings.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.abonnement-iptv-x.fr/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-ott-adulte.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-x-france.com/",
+   "permissionLevel": "siteFullUser"
+  },
+  {
+   "siteUrl": "https://www.iptv-lion.com/",
+   "permissionLevel": "siteFullUser"
+  }
+ ]
+}
