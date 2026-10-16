@@ -64,6 +64,8 @@ export interface ReportData {
     };
     /** false when the comparison period has no stored rows (previous is then zeros, not data) */
     comparison_available?: boolean;
+    /** what the KPIs are computed from when a filter is active */
+    note?: string | null;
     properties?: {
       id: number;
       display_name: string;
@@ -280,6 +282,7 @@ export class ReportsService {
         },
         delta: detail.kpi.delta,
         comparison_available: detail.kpi.comparison.available,
+        note: detail.kpi.note,
       };
     }
     for (const section of cfg.sections) {
@@ -288,6 +291,11 @@ export class ReportsService {
       const b = detail.breakdowns[meta.dimension];
       const cov = b?.coverage.clicks;
       const noteParts: string[] = [];
+      if (b?.unavailable) noteParts.push(b.unavailable.message);
+      if (detail.coverage.unreliable.includes(meta.dimension))
+        noteParts.push(
+          'INCOMPLETE: the last sync could not store every row for this dimension',
+        );
       if (b?.stored)
         noteParts.push(
           `${b.days} day${b.days === 1 ? '' : 's'} stored (${b.stored.start} → ${b.stored.end})`,
@@ -306,7 +314,7 @@ export class ReportsService {
       }
       if (b?.filters)
         noteParts.push(
-          `filter: ${b.filters.include ? `/${b.filters.include}/` : ''}${b.filters.exclude ? ` not /${b.filters.exclude}/` : ''}`.trim(),
+          `filter: ${b.filters.include ? `/${b.filters.include}/` : ''}${b.filters.exclude ? ` not /${b.filters.exclude}/` : ''}${b.filters.keys ? b.filters.keys.join(', ') : ''}`.trim(),
         );
       base.tables.push({
         section,

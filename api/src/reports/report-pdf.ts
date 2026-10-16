@@ -54,31 +54,38 @@ export function buildReportDocument(
 
   if (data.overview) {
     const o = data.overview;
+    const noPrev = o.comparison_available === false;
     content.push({ text: 'Overview', style: 'h2', color: accent });
+    if (o.note) content.push({ text: o.note, style: 'muted' });
+    if (noPrev)
+      content.push({
+        text: 'No stored rows for the comparison period: previous values and changes are not shown.',
+        style: 'muted',
+      });
     content.push(
       kpiTable([
         [
           'Clicks',
           fmtInt(o.current.clicks),
-          fmtInt(o.previous.clicks),
+          noPrev ? '—' : fmtInt(o.previous.clicks),
           fmtDelta(o.delta.clicks),
         ],
         [
           'Impressions',
           fmtInt(o.current.impressions),
-          fmtInt(o.previous.impressions),
+          noPrev ? '—' : fmtInt(o.previous.impressions),
           fmtDelta(o.delta.impressions),
         ],
         [
           'CTR',
           fmtPct(o.current.ctr),
-          fmtPct(o.previous.ctr),
+          noPrev ? '—' : fmtPct(o.previous.ctr),
           fmtDelta(o.delta.ctr),
         ],
         [
           'Avg. position',
           fmtPos(o.current.position),
-          fmtPos(o.previous.position),
+          noPrev ? '—' : fmtPos(o.previous.position),
           fmtDelta(o.delta.position),
         ],
       ]),

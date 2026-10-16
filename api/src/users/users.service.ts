@@ -116,11 +116,25 @@ export class UsersService {
     role?: UserRole;
   }): Promise<{ user: User; password: string }> {
     const email = input.email.trim().toLowerCase();
-    if (await this.repo.findOne({ where: { email } })) {
-      throw new ConflictException('Email already in use');
-    }
     // 18 random bytes → 24 url-safe chars; shown once to the inviting admin
     const password = randomBytes(18).toString('base64url');
+    const existing = await this.repo.findOne({ where: { email } });
+    if (existing) {
+      // re-inviting a deactivated member of this workspace = password reset + reactivation
+      const sameWorkspace = await this.workspaces.isMember(
+        this.workspaces.currentId(),
+        existing.id,
+      );
+      if (existing.is_active || !sameWorkspace) {
+        throw new ConflictException('Email already in use');
+      }
+      existing.is_active = true;
+      existing.name = input.name;
+      existing.role = input.role ?? existing.role;
+      existing.password_hash = await bcrypt.hash(password, 10);
+      existing.token_version += 1;
+      return { user: await this.repo.save(existing), password };
+    }
     const user = await this.create({
       email,
       name: input.name,

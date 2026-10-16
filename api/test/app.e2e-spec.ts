@@ -12,6 +12,7 @@ import { resolve } from 'node:path';
 import request = require('supertest');
 import { DataSource } from 'typeorm';
 import { SchedulerRegistry } from '@nestjs/schedule';
+import { getStorageToken } from '@nestjs/throttler';
 import { createHmac } from 'node:crypto';
 import * as nodeHttp from 'node:http';
 
@@ -94,6 +95,19 @@ describe('Spider API (e2e)', () => {
     const seeder = app.get(DefaultAdminSeeder);
     await seeder.onApplicationBootstrap();
     http = request(app.getHttpServer());
+  });
+
+  // every request comes from 127.0.0.1: reset the per-IP throttle (10 logins / min) between
+  // tests so the suite measures behaviour, not its own login count
+  beforeEach(() => {
+    // ThrottlerStorageService keeps records in `storage` and hit timestamps in a private
+    // `hitExpirations` map: both must go
+    const storage = app.get<{
+      storage: Map<string, unknown>;
+      hitExpirations?: Map<string, unknown>;
+    }>(getStorageToken());
+    storage.storage.clear();
+    storage.hitExpirations?.clear();
   });
 
   afterAll(async () => {
@@ -369,9 +383,18 @@ describe('Spider API (e2e)', () => {
       start: '2026-09-15',
       end: '2026-10-12',
     });
-    expect(data.body.overview.current.clicks).toBe(237);
+    // a query filter governs the whole report: KPIs are the matching query rows, not the
+    // property total (237), and the countries section says why it cannot be filtered
+    const filteredClicks = data.body.overview.current.clicks;
+    expect(filteredClicks).toBeLessThan(237);
+    expect(filteredClicks).toBeGreaterThan(0);
+    expect(data.body.overview.note).toMatch(/matching query rows/);
     expect(data.body.tables.map((t: { section: string }) => t.section)).toEqual(
       ['queries', 'countries'],
+    );
+    expect(data.body.tables[1].rows).toEqual([]);
+    expect(data.body.tables[1].note).toMatch(
+      /Not available while a query filter/,
     );
     expect(data.body.tables[0].rows.length).toBeLessThanOrEqual(10);
     for (const r of data.body.tables[0].rows)
@@ -594,6 +617,32 @@ describe('Spider API (e2e)', () => {
         password: inv.body.temporary_password,
       })
       .expect(401);
+    // re-invite = reactivation with a new password; the old password stays dead
+    const again = await http
+      .post('/users')
+      .set(auth())
+      .send({ email: 'member@example.com', name: 'Member' })
+      .expect(201);
+    expect(again.body.user.id).toBe(login.body.user.id);
+    await http
+      .post('/auth/login')
+      .send({
+        email: 'member@example.com',
+        password: inv.body.temporary_password,
+      })
+      .expect(401);
+    await http
+      .post('/auth/login')
+      .send({
+        email: 'member@example.com',
+        password: again.body.temporary_password,
+      })
+      .expect(200);
+    await http
+      .post('/users')
+      .set(auth())
+      .send({ email: 'member@example.com', name: 'Member' })
+      .expect(409);
   });
 
   // ---- MISS-0110 ---------------------------------------------------------

@@ -355,15 +355,21 @@ export class OverviewService {
       position: number;
     }[];
     let previousStoredDays: number;
+    // breakdown coverage ratios are always relative to the unfiltered property totals
+    const dailyRows = await this.daily.find({
+      where: { property_id: property.id },
+      order: { date: 'ASC' },
+    });
+    const inPeriod = (r: DailyMetric, p: Period) =>
+      r.date >= p.start && r.date <= p.end;
+    const propertyTotals = aggregate(
+      dailyRows.filter((r) => inPeriod(r, period)),
+    );
     let note: string | null = null;
 
     if (!filter) {
-      const rows = await this.daily.find({
-        where: { property_id: property.id },
-        order: { date: 'ASC' },
-      });
-      const inRange = (r: DailyMetric, p: Period) =>
-        r.date >= p.start && r.date <= p.end;
+      const rows = dailyRows;
+      const inRange = inPeriod;
       current = aggregate(rows.filter((r) => inRange(r, period)));
       const prevRows = rows.filter((r) => inRange(r, prev));
       previous = aggregate(prevRows);
@@ -437,7 +443,7 @@ export class OverviewService {
         property.id,
         dimension,
         period,
-        current,
+        propertyTotals,
         filter && filter.dimension === dimension ? filter : undefined,
       );
     }

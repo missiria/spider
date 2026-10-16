@@ -809,7 +809,9 @@ export default function PropertyPage() {
         <h2 className="mb-3 font-medium">Daily clicks and impressions</h2>
         {data.series.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted">
-            No daily data in this period yet.
+            {data.filters
+              ? "No stored rows match this filter in the period."
+              : "No daily data in this period yet."}
           </div>
         ) : (
           <div

@@ -58,15 +58,15 @@ sync-health summary.
 
 ## Monitoring
 
-| Signal | Where |
-|---|---|
-| Process up | `pm2 status`; `GET /api/health` → `{"status":"ok"}` (public, use for uptime checks) |
-| Sync failures / stale properties | System page in the app, or `GET /api/settings/health` (needs a session) → `ok:false` when a run failed in the last 36 h or a connected property has not synced in 36 h |
-| Property-level errors | Properties page: `last_error` on the row; `sync_runs.details` for per-dimension counts/truncation |
-| Google quota | 429s appear as retried warnings in `pm2 logs spider-api`; persistent 429 → raise `GSC_PACE_MS` |
-| Logins | API log lines `login ok user=… ip=…` / `login failed email=… ip=…` |
-| Scans | `scan: N properties, N findings, N new, N refreshed` daily at 07:30 |
-| Reports / alerts / webhooks | Reports page: schedule `last_status` + deliveries; Settings → Alerts recent events; Settings → Webhooks deliveries (status, HTTP code, attempts); API log lines `report schedules: …`, `alerts: …`, `webhooks: …` |
+| Signal                           | Where                                                                                                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process up                       | `pm2 status`; `GET /api/health` → `{"status":"ok"}` (public, use for uptime checks)                                                                                                                               |
+| Sync failures / stale properties | System page in the app, or `GET /api/settings/health` (needs a session) → `ok:false` when a run failed in the last 36 h or a connected property has not synced in 36 h                                            |
+| Property-level errors            | Properties page: `last_error` on the row; `sync_runs.details` for per-dimension counts/truncation                                                                                                                 |
+| Google quota                     | 429s appear as retried warnings in `pm2 logs spider-api`; persistent 429 → raise `GSC_PACE_MS`                                                                                                                    |
+| Logins                           | API log lines `login ok user=… ip=…` / `login failed email=… ip=…`                                                                                                                                                |
+| Scans                            | `scan: N properties, N findings, N new, N refreshed` daily at 07:30                                                                                                                                               |
+| Reports / alerts / webhooks      | Reports page: schedule `last_status` + deliveries; Settings → Alerts recent events; Settings → Webhooks deliveries (status, HTTP code, attempts); API log lines `report schedules: …`, `alerts: …`, `webhooks: …` |
 
 Schedules (server time): access checks for pending properties every 10 min; incremental sync
 06:10; opportunity scan 07:30; report schedules + alert evaluation hourly at :05; webhook
@@ -79,6 +79,20 @@ Set `APP_PUBLIC_URL=https://spider.missiria.dev` so links in emails and webhook 
 
 ## Support procedures
 
+- **Onboard a new customer (separate workspace)**: on the VPS, after a build,
+  ```bash
+  cd apps/spider/api
+  node --env-file=../deploy/env/api.env dist/cli/create-workspace.js \
+    --slug acme --name "ACME SEO" --admin-email seo@acme.com --admin-name "Jane Doe"
+  ```
+  It prints a one-time password for that admin; hand it over out of band. The admin invites
+  their own team from System → Beta access. Workspaces never see each other's data (ADR-0007).
+- **Lost device / leaked password**: System → Users → "Sign out everywhere" revokes every
+  session of that user immediately; deactivation does the same and blocks login.
+- **Partial sync** (System → "Fresh, incomplete", property banner "Incomplete data"): a
+  dimension hit the page cap or its fetch failed; stored rows were kept. Run Full resync on the
+  property once quota allows; the flag clears only after a complete backfill (ADR-0008).
+
 - **Client cannot connect a property**: they must add the service-account email (Settings →
   Search Console access) as a Full or Restricted user on the exact property (URL-prefix with
   trailing slash, or `sc-domain:`). Check access can take a few minutes after Google saves it.
@@ -86,13 +100,14 @@ Set `APP_PUBLIC_URL=https://spider.missiria.dev` so links in emails and webhook 
 - **Numbers differ from Search Console UI**: compare the same dates (data through today − 3),
   the same property type, and remember query tables only cover non-anonymised queries (coverage
   % is shown under each table).
-- **Lost password**: an admin deactivates the user and invites again (new temporary password).
+- **Lost password**: an admin deactivates the user, then invites the same email again: the account is reactivated with a new one-time password and every old session is revoked.
 - **Delete a client's data**: Properties → Remove deletes the property and all derived rows
   (verified by the integration test); users are deactivated, not deleted (audit trail).
 
 ## Known limitations (beta)
 
-- One workspace per instance; every user sees every property.
+- One workspace per user; customer workspaces are created by the operator CLI above, no self-service sign-up. No Google OAuth: customers share properties with the service account.
+- Web search type only (no image / video / news / Discover). Filters apply to one dimension at a time.
 - Dimensional history is 90 days (configurable), daily totals 16 months. No page × query storage.
 - URL Inspection data is not collected.
 - No billing, plans or quotas: invite-only beta, no pricing exists.

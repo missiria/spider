@@ -29,7 +29,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ScheduleModule.forRoot(),
+    // operator CLIs (src/cli) load the module graph without the cron workers
+    ...(process.env.SPIDER_CLI === '1' ? [] : [ScheduleModule.forRoot()]),
     // global: 300 requests / minute / IP; login keeps its own 10 / minute (see AuthController)
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     TypeOrmModule.forRoot({

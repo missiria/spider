@@ -22,6 +22,7 @@ import {
 import { Roles } from '../auth/roles.guard';
 import { AlertsService } from './alerts.service';
 import { WebhooksService } from './webhooks.service';
+import { WorkspacesService } from '../workspaces/workspaces.service';
 
 class CreateWebhookDto {
   @IsString()
@@ -101,7 +102,10 @@ class UpdateAlertDto {
 
 @Controller('webhooks')
 export class WebhooksController {
-  constructor(private readonly webhooks: WebhooksService) {}
+  constructor(
+    private readonly webhooks: WebhooksService,
+    private readonly workspaces: WorkspacesService,
+  ) {}
 
   @Get()
   list() {
@@ -140,7 +144,7 @@ export class WebhooksController {
   @Post('process')
   @HttpCode(200)
   process() {
-    return this.webhooks.processPending();
+    return this.webhooks.processPending(50, this.workspaces.currentId());
   }
 
   @Roles('admin')

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, Repository } from 'typeorm';
+import { In, LessThanOrEqual, Repository } from 'typeorm';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { WebhookDelivery } from './entities/webhook-delivery.entity';
 import {
@@ -192,14 +192,30 @@ export class WebhooksService {
     }
   }
 
-  /** Worker: deliver everything pending whose time has come. */
+  /**
+   * Worker: deliver everything pending whose time has come. The cron passes no workspace
+   * (all tenants, each delivery carries its own endpoint); the HTTP route passes the
+   * caller's workspace so an admin only flushes their own queue.
+   */
   async processPending(
     limit = 50,
+    workspaceId?: number,
   ): Promise<{ attempted: number; ok: number; failed: number }> {
+    let hookIds: number[] | undefined;
+    if (workspaceId !== undefined) {
+      hookIds = (
+        await this.repo.find({
+          where: { workspace_id: workspaceId },
+          select: { id: true },
+        })
+      ).map((h) => h.id);
+      if (!hookIds.length) return { attempted: 0, ok: 0, failed: 0 };
+    }
     const due = await this.deliveries.find({
       where: {
         status: 'pending',
         next_attempt_at: LessThanOrEqual(new Date()),
+        ...(hookIds ? { webhook_id: In(hookIds) } : {}),
       },
       order: { next_attempt_at: 'ASC' },
       take: limit,

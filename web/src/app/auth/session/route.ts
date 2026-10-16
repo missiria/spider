@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export const SESSION_COOKIE = "spider_session";
+import { SESSION_COOKIE } from "@/lib/session";
 const MAX_AGE = 60 * 60 * 24; // matches JWT_EXPIRES_IN=24h
-const API_URL = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8012").replace(/\/$/, "");
+const API_URL = (
+  process.env.API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://127.0.0.1:8012"
+).replace(/\/$/, "");
 
 function cookieOptions(req: NextRequest) {
-  const secure = req.nextUrl.protocol === "https:" || process.env.NODE_ENV === "production";
+  const secure =
+    req.nextUrl.protocol === "https:" || process.env.NODE_ENV === "production";
   return { httpOnly: true, sameSite: "lax" as const, secure, path: "/" };
 }
 
@@ -23,7 +28,14 @@ function rejectCrossSite(req: NextRequest): NextResponse | null {
   }
   const origin = req.headers.get("origin");
   if (origin) {
-    const requestHost = (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "").split(",")[0].trim().toLowerCase();
+    const requestHost = (
+      req.headers.get("x-forwarded-host") ??
+      req.headers.get("host") ??
+      ""
+    )
+      .split(",")[0]
+      .trim()
+      .toLowerCase();
     let originHost = "";
     try {
       originHost = new URL(origin).host.toLowerCase();
@@ -34,8 +46,14 @@ function rejectCrossSite(req: NextRequest): NextResponse | null {
       return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     }
   }
-  if (req.method === "POST" && !req.headers.get("content-type")?.startsWith("application/json")) {
-    return NextResponse.json({ message: "Unsupported media type" }, { status: 415 });
+  if (
+    req.method === "POST" &&
+    !req.headers.get("content-type")?.startsWith("application/json")
+  ) {
+    return NextResponse.json(
+      { message: "Unsupported media type" },
+      { status: 415 },
+    );
   }
   return null;
 }
@@ -68,8 +86,16 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ message: "Invalid body" }, { status: 400 });
   }
-  if (typeof body.email !== "string" || typeof body.password !== "string" || body.email.length > 255 || body.password.length > 1024) {
-    return NextResponse.json({ message: "Email and password are required" }, { status: 400 });
+  if (
+    typeof body.email !== "string" ||
+    typeof body.password !== "string" ||
+    body.email.length > 255 ||
+    body.password.length > 1024
+  ) {
+    return NextResponse.json(
+      { message: "Email and password are required" },
+      { status: 400 },
+    );
   }
 
   // Client IP for the API's rate limiter: taken from the trusted edge (Cloudflare) or the
@@ -83,7 +109,12 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(clientIp && proxySecret ? { "x-spider-client-ip": clientIp, "x-spider-proxy-secret": proxySecret } : {}),
+        ...(clientIp && proxySecret
+          ? {
+              "x-spider-client-ip": clientIp,
+              "x-spider-proxy-secret": proxySecret,
+            }
+          : {}),
       },
       body: JSON.stringify({ email: body.email, password: body.password }),
       cache: "no-store",
@@ -92,14 +123,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "API unavailable" }, { status: 502 });
   }
 
-  const data = (await upstream.json().catch(() => ({}))) as { token?: string; user?: unknown; message?: string | string[] };
+  const data = (await upstream.json().catch(() => ({}))) as {
+    token?: string;
+    user?: unknown;
+    message?: string | string[];
+  };
   if (!upstream.ok || typeof data.token !== "string") {
-    const message = Array.isArray(data.message) ? data.message.join(", ") : (data.message ?? "Login failed");
-    return NextResponse.json({ message }, { status: upstream.status === 200 ? 502 : upstream.status });
+    const message = Array.isArray(data.message)
+      ? data.message.join(", ")
+      : (data.message ?? "Login failed");
+    return NextResponse.json(
+      { message },
+      { status: upstream.status === 200 ? 502 : upstream.status },
+    );
   }
 
   const res = NextResponse.json({ ok: true, user: data.user ?? null });
-  res.cookies.set(SESSION_COOKIE, data.token, { ...cookieOptions(req), maxAge: MAX_AGE });
+  res.cookies.set(SESSION_COOKIE, data.token, {
+    ...cookieOptions(req),
+    maxAge: MAX_AGE,
+  });
   return res;
 }
 
