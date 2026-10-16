@@ -2,7 +2,8 @@
 
 Domain `spider.missiria.dev` → A 81.17.98.31, Cloudflare **proxied** (set 2026-10-15). Cloudflare
 terminates TLS; nginx on the VPS serves HTTP on :80 with `server_name spider.missiria.dev`
-(Cloudflare "Flexible" works as is; for "Full (strict)" add a certbot cert).
+and HTTPS on :443 with a Let's Encrypt cert (`certbot certonly --nginx -d spider.missiria.dev`); the zone runs
+Cloudflare SSL "Full", which needs the origin to answer on 443.
 
 ## First deploy (owner / VPS operator)
 
