@@ -17,6 +17,7 @@ import {
   Period,
   periodEndingOn,
 } from '../metrics/metrics.math';
+import { DimensionCoverage, parseCoverage, PropertyCoverage } from './coverage';
 import { SyncKind, SyncRun } from './entities/sync-run.entity';
 
 /** GSC keeps 16 months; 487 days of daily totals fit in one 25k-row call. */
@@ -42,10 +43,15 @@ export interface DimensionRunDetail {
   calls: number;
   truncated: boolean;
   days: number;
+  /** windows (chunks) whose rows were fully fetched and reconciled */
+  complete_windows: Period[];
+  /** windows where pagination hit the cap: stored rows for them are incomplete */
+  truncated_windows: Period[];
+  error?: string;
 }
 
 export interface RunDetails {
-  daily: { rows: number; calls: number };
+  daily: { rows: number; calls: number; error?: string };
   dimensions: Partial<Record<Dimension, DimensionRunDetail>>;
 }
 
@@ -131,6 +137,13 @@ export class SyncService implements OnModuleInit {
     });
   }
 
+  /**
+   * One run = daily totals, then every dimension. Outcome:
+   *  - ok      : everything fetched completely
+   *  - partial : daily totals stored, but a dimension hit the page cap or failed
+   *  - failed  : daily totals could not be fetched (nothing about the run is trustworthy)
+   * The in-flight lock is released on every path, including a failure to insert the run row.
+   */
   private async run(
     property: Property,
     kind: SyncKind,
@@ -140,22 +153,28 @@ export class SyncService implements OnModuleInit {
       throw new Error('A sync is already running for this property');
     }
     this.inFlight.add(property.id);
-    const run = await this.runs.save(
-      this.runs.create({
-        property_id: property.id,
-        kind,
-        status: 'running',
-        range_start: ranges.daily.start,
-        range_end: ranges.daily.end,
-      }),
-    );
+    let run: SyncRun;
+    try {
+      run = await this.runs.save(
+        this.runs.create({
+          property_id: property.id,
+          kind,
+          status: 'running',
+          range_start: ranges.daily.start,
+          range_end: ranges.daily.end,
+        }),
+      );
+    } catch (err) {
+      this.inFlight.delete(property.id);
+      throw err;
+    }
     const details: RunDetails = {
       daily: { rows: 0, calls: 0 },
       dimensions: {},
     };
 
     try {
-      // 1. daily totals
+      // 1. daily totals — one call, never paginated (≤ 487 rows): a success is a complete window
       const dailyRows = await this.gsc.query(
         property.site_url,
         ranges.daily.start,
@@ -173,16 +192,25 @@ export class SyncService implements OnModuleInit {
             impressions: Math.round(r.impressions),
             ctr: r.ctr,
             position: r.position,
+            run_id: run.id,
           }),
         ),
         ['property_id', 'date'],
       );
+      await this.daily
+        .createQueryBuilder()
+        .delete()
+        .where('property_id = :id', { id: property.id })
+        .andWhere('date BETWEEN :start AND :end', ranges.daily)
+        .andWhere('(run_id IS NULL OR run_id <> :run)', { run: run.id })
+        .execute();
 
-      // 2. date × dimension, chunked by month, paginated
+      // 2. date × dimension, chunked by month, paginated; a failing dimension does not stop the others
       for (const dimension of Object.keys(
         DIMENSION_API,
       ) as (keyof typeof DIMENSION_API)[]) {
         details.dimensions[dimension] = await this.syncDimension(
+          run.id,
           property,
           dimension,
           ranges.dimensions,
@@ -190,6 +218,7 @@ export class SyncService implements OnModuleInit {
       }
       // 3. search appearance (one call per day)
       details.dimensions.search_appearance = await this.syncAppearance(
+        run.id,
         property,
         ranges.appearance,
       );
@@ -200,9 +229,37 @@ export class SyncService implements OnModuleInit {
         .where('d.property_id = :id', { id: property.id })
         .getRawOne<{ min: string | null }>();
 
+      const incomplete = Object.values(details.dimensions).filter(
+        (d) => d && (d.truncated || d.error),
+      );
+      run.status = incomplete.length ? 'partial' : 'ok';
+      run.finished_at = new Date();
+      run.error = incomplete.length
+        ? incomplete
+            .map((d) =>
+              d!.error
+                ? `fetch failed: ${d!.error}`
+                : `page cap hit for ${d!.truncated_windows.map((w) => `${w.start}..${w.end}`).join(', ')}`,
+            )
+            .join(' | ')
+            .slice(0, 2000)
+        : null;
+
       property.last_sync_at = new Date();
-      property.last_error = null;
+      property.last_sync_status = run.status;
+      property.last_error = incomplete.length
+        ? `${kind} partial: ${describeIncomplete(details)}`.slice(0, 2000)
+        : null;
       property.data_since = firstDate?.min ?? null;
+      property.coverage = JSON.stringify(
+        buildCoverage(
+          parseCoverage(property.coverage),
+          run,
+          kind,
+          ranges,
+          details,
+        ),
+      );
       if (property.status === 'error') {
         property.status = 'connected';
       }
@@ -218,12 +275,10 @@ export class SyncService implements OnModuleInit {
           (n, d) => n + (d?.calls ?? 0),
           0,
         );
-      run.status = 'ok';
       run.rows_upserted = dailyRows.length + dimRows;
-      run.finished_at = new Date();
       run.details = JSON.stringify(details);
       this.logger.log(
-        `${kind} ${property.site_url}: ${dailyRows.length} daily + ${dimRows} dimension rows in ${calls} calls`,
+        `${kind} ${property.site_url}: ${run.status}, ${dailyRows.length} daily + ${dimRows} dimension rows in ${calls} calls`,
       );
     } catch (err) {
       const message = (err as Error).message ?? String(err);
@@ -234,6 +289,7 @@ export class SyncService implements OnModuleInit {
       this.logger.error(`${kind} ${property.site_url} failed: ${message}`);
       try {
         property.last_error = `${kind} failed: ${message}`.slice(0, 2000);
+        property.last_sync_status = 'failed';
         await this.properties.save(property);
       } catch (saveErr) {
         this.logger.error(
@@ -254,6 +310,7 @@ export class SyncService implements OnModuleInit {
   }
 
   private async syncDimension(
+    runId: number,
     property: Property,
     dimension: keyof typeof DIMENSION_API,
     period: Period,
@@ -263,47 +320,98 @@ export class SyncService implements OnModuleInit {
       calls: 0,
       truncated: false,
       days: 0,
+      complete_windows: [],
+      truncated_windows: [],
     };
-    for (const chunk of chunkPeriod(period, CHUNK_DAYS)) {
-      const result = await this.gsc.queryAll(
-        property.site_url,
-        chunk.start,
-        chunk.end,
-        ['date', DIMENSION_API[dimension]],
-      );
-      await this.storeRows(property.id, dimension, result);
-      detail.rows += result.rows.length;
-      detail.calls += result.calls;
-      detail.truncated = detail.truncated || result.truncated;
-      detail.days += daysIn(chunk);
-      if (result.truncated) {
-        this.logger.warn(
-          `${property.site_url} ${dimension} ${chunk.start}..${chunk.end}: hit the page cap, rows beyond it are not stored`,
+    try {
+      for (const chunk of chunkPeriod(period, CHUNK_DAYS)) {
+        const result = await this.gsc.queryAll(
+          property.site_url,
+          chunk.start,
+          chunk.end,
+          ['date', DIMENSION_API[dimension]],
         );
+        await this.storeRows(runId, property.id, dimension, result);
+        detail.rows += result.rows.length;
+        detail.calls += result.calls;
+        detail.days += daysIn(chunk);
+        if (result.truncated) {
+          // rows beyond the cap are unknown: keep what is stored, never delete here
+          detail.truncated = true;
+          detail.truncated_windows.push(chunk);
+          this.logger.warn(
+            `${property.site_url} ${dimension} ${chunk.start}..${chunk.end}: hit the page cap, rows beyond it are not stored`,
+          );
+        } else {
+          await this.reconcile(runId, property.id, dimension, chunk);
+          detail.complete_windows.push(chunk);
+        }
       }
+    } catch (err) {
+      detail.error = ((err as Error).message ?? String(err)).slice(0, 500);
+      this.logger.warn(
+        `${property.site_url} ${dimension}: fetch failed, stored rows kept: ${detail.error}`,
+      );
     }
     return detail;
   }
 
   private async syncAppearance(
+    runId: number,
     property: Property,
     period: Period,
   ): Promise<DimensionRunDetail> {
-    const result = await this.gsc.querySearchAppearanceByDay(
-      property.site_url,
-      period.start,
-      period.end,
-    );
-    await this.storeRows(property.id, 'search_appearance', result);
-    return {
-      rows: result.rows.length,
-      calls: result.calls,
+    const detail: DimensionRunDetail = {
+      rows: 0,
+      calls: 0,
       truncated: false,
       days: daysIn(period),
+      complete_windows: [],
+      truncated_windows: [],
     };
+    try {
+      const result = await this.gsc.querySearchAppearanceByDay(
+        property.site_url,
+        period.start,
+        period.end,
+      );
+      await this.storeRows(runId, property.id, 'search_appearance', result);
+      await this.reconcile(runId, property.id, 'search_appearance', period);
+      detail.rows = result.rows.length;
+      detail.calls = result.calls;
+      detail.complete_windows.push(period);
+    } catch (err) {
+      detail.error = ((err as Error).message ?? String(err)).slice(0, 500);
+      this.logger.warn(
+        `${property.site_url} search_appearance: fetch failed, stored rows kept: ${detail.error}`,
+      );
+    }
+    return detail;
+  }
+
+  /**
+   * A window fetched completely is authoritative: rows for those dates that this run did
+   * not write (older runs, keys Google no longer returns) are removed. Retries are
+   * idempotent because every row of the window carries the current run id afterwards.
+   */
+  private async reconcile(
+    runId: number,
+    propertyId: number,
+    dimension: Dimension,
+    window: Period,
+  ): Promise<void> {
+    await this.dims
+      .createQueryBuilder()
+      .delete()
+      .where('property_id = :id', { id: propertyId })
+      .andWhere('dimension = :dimension', { dimension })
+      .andWhere('date BETWEEN :start AND :end', window)
+      .andWhere('(run_id IS NULL OR run_id <> :run)', { run: runId })
+      .execute();
   }
 
   private async storeRows(
+    runId: number,
     propertyId: number,
     dimension: Dimension,
     result: GscPagedResult,
@@ -321,6 +429,7 @@ export class SyncService implements OnModuleInit {
         impressions: Math.round(r.impressions),
         ctr: r.ctr,
         position: r.position,
+        run_id: runId,
       }),
     );
     await this.upsertChunks(this.dims, entities, [
@@ -341,6 +450,57 @@ export class SyncService implements OnModuleInit {
       await repo.upsert(entities.slice(i, i + 500) as any, conflictPaths);
     }
   }
+}
+
+function describeIncomplete(details: RunDetails): string {
+  return (Object.keys(details.dimensions) as Dimension[])
+    .map((d) => [d, details.dimensions[d]!] as const)
+    .filter(([, v]) => v.truncated || v.error)
+    .map(([d, v]) =>
+      v.error ? `${d} failed (${v.error})` : `${d} hit the page cap`,
+    )
+    .join('; ');
+}
+
+/** Merge this run's outcome into the property's coverage record (see coverage.ts). */
+export function buildCoverage(
+  previous: PropertyCoverage | null,
+  run: SyncRun,
+  kind: SyncKind,
+  ranges: { daily: Period; dimensions: Period; appearance: Period },
+  details: RunDetails,
+): PropertyCoverage {
+  const dimensions: PropertyCoverage['dimensions'] = {};
+  for (const d of Object.keys(details.dimensions) as Dimension[]) {
+    const v = details.dimensions[d]!;
+    const status: DimensionCoverage['status'] = v.error
+      ? 'failed'
+      : v.truncated
+        ? 'truncated'
+        : 'complete';
+    const wasIncomplete =
+      previous?.dimensions[d]?.since_backfill_incomplete ?? false;
+    dimensions[d] = {
+      status,
+      reason: v.error ? 'error' : v.truncated ? 'page_cap' : undefined,
+      error: v.error,
+      window: d === 'search_appearance' ? ranges.appearance : ranges.dimensions,
+      rows: v.rows,
+      since_backfill_incomplete:
+        status !== 'complete' || (kind !== 'backfill' && wasIncomplete),
+    };
+  }
+  return {
+    run_id: run.id,
+    kind,
+    finished_at: new Date().toISOString(),
+    daily: {
+      status: details.daily.error ? 'failed' : 'complete',
+      window: ranges.daily,
+      rows: details.daily.rows,
+    },
+    dimensions,
+  };
 }
 
 function clampInt(

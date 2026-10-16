@@ -66,4 +66,12 @@ export class UsersController {
   ) {
     await this.users.deactivate(id, req.user.userId);
   }
+
+  /** Sign a member out everywhere (lost device, shared password): old tokens become 401. */
+  @Roles('admin')
+  @Post(':id/revoke-sessions')
+  @HttpCode(204)
+  async revokeSessions(@Param('id', ParseIntPipe) id: number) {
+    await this.users.revokeSessions(await this.users.findMember(id));
+  }
 }

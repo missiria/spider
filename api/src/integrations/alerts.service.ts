@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThanOrEqual, Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import { Opportunity } from '../opportunities/entities/opportunity.entity';
 import { Property } from '../properties/entities/property.entity';
 import { parseRecipients } from '../reports/report.util';
@@ -169,11 +169,19 @@ export class AlertsService {
 
   private async collectCandidates(): Promise<Candidate[]> {
     const since = new Date(Date.now() - LOOKBACK_HOURS * 3_600_000);
-    const props = await this.properties.find();
+    const workspaceId = this.workspaces.currentId();
+    const props = await this.properties.find({
+      where: { workspace_id: workspaceId },
+    });
+    const propertyIds = props.map((p) => p.id);
     const name = new Map(props.map((p) => [p.id, p.display_name]));
     const out: Candidate[] = [];
     const opps = await this.opportunities.find({
-      where: { first_seen_at: MoreThanOrEqual(since), status: 'open' },
+      where: {
+        workspace_id: workspaceId,
+        first_seen_at: MoreThanOrEqual(since),
+        status: 'open',
+      },
     });
     for (const o of opps) {
       out.push({
@@ -198,14 +206,20 @@ export class AlertsService {
         },
       });
     }
-    const failed = await this.runs.find({
-      where: { status: 'failed', started_at: MoreThanOrEqual(since) },
-    });
+    const failed = propertyIds.length
+      ? await this.runs.find({
+          where: {
+            property_id: In(propertyIds),
+            status: In(['failed', 'partial']),
+            started_at: MoreThanOrEqual(since),
+          },
+        })
+      : [];
     for (const r of failed) {
       out.push({
         dedupeKey: `sync_run:${r.id}`,
         kind: 'sync_failed',
-        title: `Sync failed: ${name.get(r.property_id) ?? r.property_id} (${r.kind})`,
+        title: `${r.status === 'partial' ? 'Sync incomplete' : 'Sync failed'}: ${name.get(r.property_id) ?? r.property_id} (${r.kind})`,
         propertyId: r.property_id,
         payload: {
           sync_run_id: r.id,

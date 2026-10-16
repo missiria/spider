@@ -10,7 +10,8 @@ import {
 import { Property } from '../../properties/entities/property.entity';
 
 export type SyncKind = 'backfill' | 'incremental' | 'top';
-export type SyncStatus = 'running' | 'ok' | 'failed';
+/** partial = daily totals stored, but at least one dimension hit the page cap or failed */
+export type SyncStatus = 'running' | 'ok' | 'partial' | 'failed';
 
 @Entity('sync_runs')
 @Index('IDX_sync_runs_property_started', ['property_id', 'started_at'])
@@ -32,7 +33,7 @@ export class SyncRun {
 
   @Column({
     type: 'enum',
-    enum: ['running', 'ok', 'failed'],
+    enum: ['running', 'ok', 'partial', 'failed'],
     default: 'running',
   })
   status: SyncStatus;

@@ -37,6 +37,7 @@ import {
   OpportunityPriority,
   OpportunityStatus,
 } from './entities/opportunity.entity';
+import { parseCoverage, unreliableDimensions } from '../sync/coverage';
 import { mergeRules, RuleConfig } from './rules.config';
 import {
   evaluate,
@@ -173,6 +174,15 @@ export class OpportunitiesService {
       where: { property_id: property.id },
     });
     const inRange = (d: string, p: Period) => d >= p.start && d <= p.end;
+    // a dimension whose stored rows are incomplete (page cap / failed fetch since the last
+    // complete backfill) would produce false drops: its rules are skipped for this run
+    const unreliable = unreliableDimensions(parseCoverage(property.coverage));
+    if (unreliable.length) {
+      this.logger.warn(
+        `scan ${property.site_url}: skipping ${unreliable.join(', ')} rules, stored rows are incomplete (see property coverage)`,
+      );
+    }
+    const empty = { current: [] as KeyTotals[], previous: [] as KeyTotals[] };
     const input: ScanInput = {
       period,
       previous,
@@ -180,14 +190,18 @@ export class OpportunitiesService {
         current: aggregate(dailyRows.filter((r) => inRange(r.date, period))),
         previous: aggregate(dailyRows.filter((r) => inRange(r.date, previous))),
       },
-      pages: {
-        current: await this.keyTotals(property.id, 'page', period),
-        previous: await this.keyTotals(property.id, 'page', previous),
-      },
-      queries: {
-        current: await this.keyTotals(property.id, 'query', period),
-        previous: await this.keyTotals(property.id, 'query', previous),
-      },
+      pages: unreliable.includes('page')
+        ? empty
+        : {
+            current: await this.keyTotals(property.id, 'page', period),
+            previous: await this.keyTotals(property.id, 'page', previous),
+          },
+      queries: unreliable.includes('query')
+        ? empty
+        : {
+            current: await this.keyTotals(property.id, 'query', period),
+            previous: await this.keyTotals(property.id, 'query', previous),
+          },
       queryPages: [],
     };
     if (cfg.cannibalization.enabled) {
@@ -488,6 +502,14 @@ export class OpportunitiesService {
       input.assignee_id !== undefined &&
       input.assignee_id !== opp.assignee_id
     ) {
+      if (
+        input.assignee_id !== null &&
+        !(await this.workspaces.isMember(opp.workspace_id, input.assignee_id))
+      ) {
+        throw new BadRequestException(
+          'Assignee must be a member of this workspace',
+        );
+      }
       await this.log(id, userId, 'assignee', {
         from: opp.assignee_id,
         to: input.assignee_id,

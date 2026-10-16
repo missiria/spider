@@ -28,6 +28,10 @@ export class User {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  /** bumped to revoke every session issued before (JWT carries it as `ver`) */
+  @Column({ type: 'int', unsigned: true, default: 0 })
+  token_version: number;
+
   @CreateDateColumn({ type: 'timestamp' })
   created_at: Date;
 

@@ -18,7 +18,7 @@ export class DefaultAdminSeeder implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.workspaces.ensureDefault();
+    const workspace = await this.workspaces.ensureDefault();
 
     if ((await this.users.count()) > 0) {
       return;
@@ -31,7 +31,13 @@ export class DefaultAdminSeeder implements OnApplicationBootstrap {
       );
       return;
     }
-    await this.users.create({ email, password, name: 'Admin', role: 'admin' });
+    await this.users.create({
+      email,
+      password,
+      name: 'Admin',
+      role: 'admin',
+      workspaceId: workspace.id,
+    });
     this.logger.log(`Default admin created: ${email}`);
   }
 }

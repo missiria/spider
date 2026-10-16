@@ -78,4 +78,12 @@ export class AuthController {
     const user = await this.users.updateProfile(req.user.userId, body);
     return this.users.toPublic(user);
   }
+
+  /** "Sign out everywhere": every token issued so far for this account stops working. */
+  @Post('revoke-sessions')
+  @HttpCode(204)
+  async revokeSessions(@Req() req: { user: AuthUser }) {
+    const user = await this.users.findById(req.user.userId);
+    if (user) await this.users.revokeSessions(user);
+  }
 }

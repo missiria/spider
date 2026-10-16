@@ -62,6 +62,8 @@ export class PropertiesController {
     @Query('exclude_query') excludeQuery?: string,
     @Query('include_page') includePage?: string,
     @Query('exclude_page') excludePage?: string,
+    @Query('country') country?: string,
+    @Query('device') device?: string,
   ) {
     const property = await this.properties.get(id);
     const detail = await this.overview.propertyDetail(
@@ -72,6 +74,8 @@ export class PropertiesController {
         exclude_query: excludeQuery,
         include_page: includePage,
         exclude_page: excludePage,
+        country,
+        device,
       },
     );
     return {

@@ -30,6 +30,14 @@ process.env.NODE_ENV = 'test';
 const { AppModule } = require('../src/app.module');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { DefaultAdminSeeder } = require('../src/bootstrap/default-admin.seeder');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { GscService } = require('../src/gsc/gsc.service');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { SyncService } = require('../src/sync/sync.service');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { UsersService } = require('../src/users/users.service');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { WorkspacesService } = require('../src/workspaces/workspaces.service');
 
 describe('Spider API (e2e)', () => {
   let app: INestApplication;
@@ -75,7 +83,9 @@ describe('Spider API (e2e)', () => {
       'dimension_metrics',
       'daily_metrics',
       'properties',
+      'workspace_members',
       'users',
+      'workspaces',
     ]) {
       await ds.query(`DELETE FROM \`${t}\``);
     }
@@ -584,6 +594,489 @@ describe('Spider API (e2e)', () => {
         password: inv.body.temporary_password,
       })
       .expect(401);
+  });
+
+  // ---- MISS-0110 ---------------------------------------------------------
+
+  it('sessions: deactivation, revocation, deletion and role changes apply to already-issued tokens', async () => {
+    const inv = await http
+      .post('/users')
+      .set(auth())
+      .send({ email: 'revoke@example.com', name: 'Revoke', role: 'admin' })
+      .expect(201);
+    const login = () =>
+      http
+        .post('/auth/login')
+        .send({
+          email: 'revoke@example.com',
+          password: inv.body.temporary_password,
+        })
+        .expect(200)
+        .then((r) => r.body.token as string);
+    const as = (t: string) => ({ Authorization: `Bearer ${t}` });
+    const ds = app.get(DataSource);
+
+    // 1. revoke sessions → old token dead for reads, writes and admin routes; new login works
+    let t1 = await login();
+    await http.get('/properties').set(as(t1)).expect(200);
+    await http
+      .post(`/users/${inv.body.user.id}/revoke-sessions`)
+      .set(auth())
+      .expect(204);
+    await http.get('/properties').set(as(t1)).expect(401);
+    await http.post('/opportunities/scan').set(as(t1)).expect(401);
+    await http
+      .post('/users')
+      .set(as(t1))
+      .send({ email: 'z@example.com', name: 'Z' })
+      .expect(401);
+    t1 = await login();
+    await http.get('/properties').set(as(t1)).expect(200);
+
+    // 2. demotion in the database → admin route refused with the old token (role read per request)
+    await ds.query(`UPDATE users SET role = 'member' WHERE id = ?`, [
+      inv.body.user.id,
+    ]);
+    await http
+      .post('/users')
+      .set(as(t1))
+      .send({ email: 'z@example.com', name: 'Z' })
+      .expect(403);
+
+    // 3. self "sign out everywhere"
+    await http.post('/auth/revoke-sessions').set(as(t1)).expect(204);
+    await http.get('/auth/me').set(as(t1)).expect(401);
+
+    // 4. deactivation kills a live token, through the cookie as well
+    const t2 = await login();
+    await http.delete(`/users/${inv.body.user.id}`).set(auth()).expect(204);
+    await http.get('/properties').set(as(t2)).expect(401);
+    await http
+      .get('/auth/me')
+      .set('Cookie', `spider_session=${t2}`)
+      .expect(401);
+
+    // 5. a deleted user's token is rejected
+    await ds.query(`UPDATE users SET is_active = 1 WHERE id = ?`, [
+      inv.body.user.id,
+    ]);
+    const t3 = await login();
+    await ds.query(`DELETE FROM users WHERE id = ?`, [inv.body.user.id]);
+    await http.get('/properties').set(as(t3)).expect(401);
+  });
+
+  it('tenancy: a second workspace cannot list, read, mutate, assign, delete or export the first one', async () => {
+    const workspaces = app.get(WorkspacesService);
+    const users = app.get(UsersService);
+    const wsB = await workspaces.create('tenant-b', 'Tenant B');
+    await users.create({
+      email: 'b-admin@example.com',
+      password: 'Tenant-b-pass-123',
+      name: 'B admin',
+      role: 'admin',
+      workspaceId: wsB.id,
+    });
+    const b = await http
+      .post('/auth/login')
+      .send({ email: 'b-admin@example.com', password: 'Tenant-b-pass-123' })
+      .expect(200);
+    const asB = { Authorization: `Bearer ${b.body.token}` };
+
+    // A's objects
+    const viewA = await http
+      .post('/views')
+      .set(auth())
+      .send({ scope: 'fleet', name: 'A view', config: { period: { days: 7 } } })
+      .expect(201);
+    const oppA = (
+      await http.get('/opportunities?status=all').set(auth()).expect(200)
+    ).body.items[0];
+    expect(oppA).toBeTruthy();
+    const reportA = await http
+      .post('/reports')
+      .set(auth())
+      .send({
+        name: 'A report',
+        scope: 'property',
+        property_id: propertyId,
+        config: { period: { days: 28 }, sections: ['overview'] },
+      })
+      .expect(201);
+    const hookA = await http
+      .post('/webhooks')
+      .set(auth())
+      .send({
+        name: 'A hook',
+        url: 'http://127.0.0.1:9/x',
+        events: ['opportunity.created'],
+      })
+      .expect(201);
+
+    // list: nothing of A
+    expect(
+      (await http.get('/properties').set(asB).expect(200)).body.items,
+    ).toEqual([]);
+    expect(
+      (await http.get('/overview').set(asB).expect(200)).body.items,
+    ).toEqual([]);
+    expect((await http.get('/views').set(asB).expect(200)).body.items).toEqual(
+      [],
+    );
+    expect(
+      (await http.get('/opportunities?status=all').set(asB).expect(200)).body
+        .items,
+    ).toEqual([]);
+    expect(
+      (await http.get('/reports').set(asB).expect(200)).body.items,
+    ).toEqual([]);
+    expect(
+      (await http.get('/webhooks').set(asB).expect(200)).body.items,
+    ).toEqual([]);
+    const usersB = (await http.get('/users').set(asB).expect(200)).body.items;
+    expect(usersB.map((u: { email: string }) => u.email)).toEqual([
+      'b-admin@example.com',
+    ]);
+    const healthB = (await http.get('/settings/health').set(asB).expect(200))
+      .body;
+    expect(healthB.properties.total).toBe(0);
+    expect(healthB.failed_runs).toEqual([]);
+    expect(
+      (await http.get('/settings').set(asB).expect(200)).body.workspace.slug,
+    ).toBe('tenant-b');
+
+    // read / export
+    await http.get(`/properties/${propertyId}`).set(asB).expect(404);
+    await http.get(`/opportunities/${oppA.id}`).set(asB).expect(404);
+    await http.get(`/reports/${reportA.body.id}/data`).set(asB).expect(404);
+    await http
+      .get(`/reports/${reportA.body.id}/export.csv`)
+      .set(asB)
+      .expect(404);
+    await http
+      .get(`/reports/${reportA.body.id}/export.pdf`)
+      .set(asB)
+      .expect(404);
+    await http
+      .get(`/webhooks/${hookA.body.id}/deliveries`)
+      .set(asB)
+      .expect(404);
+
+    // mutate / delete / sync
+    await http
+      .patch(`/views/${viewA.body.id}`)
+      .set(asB)
+      .send({ name: 'pwned' })
+      .expect(404);
+    await http.delete(`/views/${viewA.body.id}`).set(asB).expect(404);
+    await http
+      .patch(`/opportunities/${oppA.id}`)
+      .set(asB)
+      .send({ status: 'dismissed' })
+      .expect(404);
+    await http.post(`/properties/${propertyId}/sync`).set(asB).expect(404);
+    await http.post(`/properties/${propertyId}/check`).set(asB).expect(404);
+    await http.delete(`/properties/${propertyId}`).set(asB).expect(404);
+    await http.delete(`/reports/${reportA.body.id}`).set(asB).expect(404);
+    await http.delete(`/webhooks/${hookA.body.id}`).set(asB).expect(404);
+    await http.post(`/webhooks/${hookA.body.id}/test`).set(asB).expect(404);
+    // create pointing at A's property
+    await http
+      .post('/views')
+      .set(asB)
+      .send({
+        scope: 'property',
+        property_id: propertyId,
+        name: 'x',
+        config: {},
+      })
+      .expect(404);
+    await http
+      .post('/reports')
+      .set(asB)
+      .send({
+        name: 'x',
+        scope: 'property',
+        property_id: propertyId,
+        config: {},
+      })
+      .expect(404);
+    // users of another workspace
+    const bUserId = usersB[0].id;
+    await http.delete(`/users/${bUserId}`).set(auth()).expect(404);
+    await http
+      .post(`/users/${bUserId}/revoke-sessions`)
+      .set(auth())
+      .expect(404);
+    await http
+      .patch(`/opportunities/${oppA.id}`)
+      .set(auth())
+      .send({ assignee_id: bUserId })
+      .expect(400);
+    // B's scan touches nothing of A
+    const scanB = await http.post('/opportunities/scan').set(asB).expect(200);
+    expect(scanB.body.properties).toBe(0);
+
+    // A still intact
+    await http
+      .get(`/views`)
+      .set(auth())
+      .expect(200)
+      .then((r) =>
+        expect(r.body.items.map((v: { name: string }) => v.name)).toContain(
+          'A view',
+        ),
+      );
+    expect(
+      (await http.get(`/opportunities/${oppA.id}`).set(auth()).expect(200)).body
+        .status,
+    ).toBe(oppA.status);
+    await http.delete(`/webhooks/${hookA.body.id}`).set(auth()).expect(204);
+    await http.delete(`/reports/${reportA.body.id}`).set(auth()).expect(204);
+    await http.delete(`/views/${viewA.body.id}`).set(auth()).expect(204);
+  });
+
+  it('sync: truncated runs are partial and visible; complete windows reconcile; failed fetches keep data', async () => {
+    const ds = app.get(DataSource);
+    const gsc = app.get(GscService);
+    const sync = app.get(SyncService);
+    const loadProperty = () =>
+      ds.getRepository('Property').findOneByOrFail({ id: propertyId });
+    const count = async (sql: string) =>
+      Number((await ds.query(sql, [propertyId]))[0].n);
+    const end = (
+      await ds.query(
+        "SELECT DATE_FORMAT(MAX(date), '%Y-%m-%d') d FROM daily_metrics WHERE property_id = ?",
+        [propertyId],
+      )
+    )[0].d as string;
+    void end;
+
+    // 1. page cap hit on queries → partial, surfaced in API + health; query rows of the window kept
+    const realQueryAll = gsc.queryAll.bind(gsc);
+    const spy = jest
+      .spyOn(gsc, 'queryAll')
+      .mockImplementation(async (...args: unknown[]) => {
+        const res = await realQueryAll(
+          ...(args as [string, string, string, string[]]),
+        );
+        return (args[3] as string[])[1] === 'query'
+          ? { ...res, truncated: true }
+          : res;
+      });
+    const partial = await sync.incremental(await loadProperty());
+    expect(partial.status).toBe('partial');
+    const d = await http
+      .get(`/properties/${propertyId}?days=28`)
+      .set(auth())
+      .expect(200);
+    expect(d.body.property.last_sync_status).toBe('partial');
+    expect(d.body.property.last_run.status).toBe('partial');
+    expect(d.body.coverage.unreliable).toContain('query');
+    expect(d.body.coverage.detail.dimensions.query).toMatchObject({
+      status: 'truncated',
+      reason: 'page_cap',
+    });
+    const health = (await http.get('/settings/health').set(auth()).expect(200))
+      .body;
+    expect(health.complete).toBe(false);
+    expect(
+      health.properties.partial.map((p: { id: number }) => p.id),
+    ).toContain(propertyId);
+    // opportunities skip unreliable dimensions: no query-subject findings refreshed
+    spy.mockRestore();
+
+    // 2. a failing dimension keeps its stored rows (no deletion on partial responses)
+    const pagesBefore = await count(
+      "SELECT COUNT(*) n FROM dimension_metrics WHERE property_id = ? AND dimension = 'page'",
+    );
+    expect(pagesBefore).toBeGreaterThan(0);
+    const failSpy = jest
+      .spyOn(gsc, 'queryAll')
+      .mockImplementation(async (...args: unknown[]) => {
+        if ((args[3] as string[])[1] === 'page')
+          throw new Error('quota exceeded');
+        return realQueryAll(...(args as [string, string, string, string[]]));
+      });
+    const failed = await sync.incremental(await loadProperty());
+    expect(failed.status).toBe('partial');
+    expect(failed.error).toMatch(/quota exceeded/);
+    expect(
+      await count(
+        "SELECT COUNT(*) n FROM dimension_metrics WHERE property_id = ? AND dimension = 'page'",
+      ),
+    ).toBe(pagesBefore);
+    failSpy.mockRestore();
+
+    // 3. a complete but empty re-fetch removes the obsolete rows of that window only
+    const [window] = await ds.query(
+      "SELECT DATE_FORMAT(range_start, '%Y-%m-%d') s, DATE_FORMAT(range_end, '%Y-%m-%d') e FROM sync_runs WHERE id = ?",
+      [failed.id],
+    );
+    const inWindow = (t: string, extra = '') =>
+      `SELECT COUNT(*) n FROM ${t} WHERE property_id = ? AND date BETWEEN '${window.s}' AND '${window.e}'${extra}`;
+    expect(await count(inWindow('daily_metrics'))).toBeGreaterThan(0);
+    const outsideBefore = await count(
+      `SELECT COUNT(*) n FROM daily_metrics WHERE property_id = ? AND date < '${window.s}'`,
+    );
+    const emptyQuery = jest.spyOn(gsc, 'query').mockResolvedValue([]);
+    const emptyAll = jest
+      .spyOn(gsc, 'queryAll')
+      .mockResolvedValue({ rows: [], calls: 1, truncated: false });
+    const emptyAppearance = jest
+      .spyOn(gsc, 'querySearchAppearanceByDay')
+      .mockResolvedValue({ rows: [], calls: 1, truncated: false });
+    const empty = await sync.incremental(await loadProperty());
+    expect(empty.status).toBe('ok');
+    expect(await count(inWindow('daily_metrics'))).toBe(0);
+    expect(await count(inWindow('dimension_metrics'))).toBe(0);
+    expect(
+      await count(
+        `SELECT COUNT(*) n FROM daily_metrics WHERE property_id = ? AND date < '${window.s}'`,
+      ),
+    ).toBe(outsideBefore);
+    emptyQuery.mockRestore();
+    emptyAll.mockRestore();
+    emptyAppearance.mockRestore();
+
+    // 4. retry with real data is idempotent: the window is restored, a second run changes nothing
+    const restored = await sync.incremental(await loadProperty());
+    expect(restored.status).toBe('ok');
+    const n1 = await count(inWindow('dimension_metrics'));
+    expect(n1).toBeGreaterThan(0);
+    await sync.incremental(await loadProperty());
+    expect(await count(inWindow('dimension_metrics'))).toBe(n1);
+    // a complete incremental does not erase the incomplete marker: only a complete backfill does
+    const still = await http
+      .get(`/properties/${propertyId}`)
+      .set(auth())
+      .expect(200);
+    expect(still.body.coverage.unreliable).toContain('query');
+    const full = await sync.backfill(await loadProperty());
+    expect(full.status).toBe('ok');
+    const clean = await http
+      .get(`/properties/${propertyId}`)
+      .set(auth())
+      .expect(200);
+    expect(clean.body.coverage.unreliable).toEqual([]);
+    expect(
+      (await http.get('/settings/health').set(auth()).expect(200)).body
+        .complete,
+    ).toBe(true);
+  });
+
+  it('dates, filters and saved views: controlled 400s and lossless round-trips', async () => {
+    for (const q of [
+      'end=2026-99-99',
+      'end=2026-02-30',
+      'start=2026-10-10&end=2026-10-01',
+      'start=2024-01-01&end=2026-10-01',
+      'days=0',
+      'days=abc',
+    ]) {
+      await http.get(`/overview?${q}`).set(auth()).expect(400);
+      await http.get(`/properties/${propertyId}?${q}`).set(auth()).expect(400);
+    }
+    await http
+      .get(`/properties/${propertyId}?days=28&include_query=a&include_page=b`)
+      .set(auth())
+      .expect(400);
+    await http
+      .get(`/properties/${propertyId}?days=28&country=FR`)
+      .set(auth())
+      .expect(400);
+
+    // country filter governs KPIs, series and comparison; other breakdowns are marked unavailable
+    const all = await http
+      .get(`/properties/${propertyId}?start=2026-09-15&end=2026-10-12`)
+      .set(auth())
+      .expect(200);
+    const esp = await http
+      .get(
+        `/properties/${propertyId}?start=2026-09-15&end=2026-10-12&country=esp`,
+      )
+      .set(auth())
+      .expect(200);
+    expect(esp.body.filters).toMatchObject({
+      dimension: 'country',
+      keys: ['esp'],
+    });
+    expect(esp.body.kpi.source).toBe('country');
+    expect(esp.body.kpi.current.clicks).toBe(
+      all.body.breakdowns.country.rows[0].clicks,
+    );
+    expect(esp.body.kpi.current.clicks).toBeLessThan(
+      all.body.kpi.current.clicks,
+    );
+    const seriesSum = esp.body.series.reduce(
+      (n: number, p: { clicks: number }) => n + p.clicks,
+      0,
+    );
+    expect(seriesSum).toBe(esp.body.kpi.current.clicks);
+    expect(
+      esp.body.breakdowns.country.rows.map((r: { key: string }) => r.key),
+    ).toEqual(['esp']);
+    expect(esp.body.breakdowns.query.unavailable.reason).toBe(
+      'cross_dimension',
+    );
+
+    // comparison without stored rows is reported as unavailable, not as a 100 % gain
+    const early = await http
+      .get(`/properties/${propertyId}?start=2026-05-16&end=2026-05-20`)
+      .set(auth())
+      .expect(200);
+    expect(early.body.kpi.comparison.available).toBe(false);
+    expect(early.body.kpi.previous).toBeNull();
+    expect(early.body.kpi.delta.clicks).toBeNull();
+
+    // saved views: byte-aware limit, rejected before persistence; valid configs round-trip
+    const config = {
+      period: { start: '2026-09-15', end: '2026-10-12' },
+      filters: { country: 'esp' },
+      note: 'é€😀'.repeat(100),
+    };
+    const v = await http
+      .post('/views')
+      .set(auth())
+      .send({
+        scope: 'property',
+        property_id: propertyId,
+        name: 'Spain',
+        config,
+      })
+      .expect(201);
+    expect(v.body.config).toEqual(config);
+    const got = await http
+      .get(`/views?scope=property&property_id=${propertyId}`)
+      .set(auth())
+      .expect(200);
+    expect(
+      got.body.items.find((x: { id: number }) => x.id === v.body.id).config,
+    ).toEqual(config);
+    const before = (await http.get('/views').set(auth())).body.items.length;
+    await http
+      .post('/views')
+      .set(auth())
+      .send({
+        scope: 'fleet',
+        name: 'big',
+        config: { note: '😀'.repeat(4100) },
+      })
+      .expect(400);
+    await http
+      .patch(`/views/${v.body.id}`)
+      .set(auth())
+      .send({ config: { note: 'x'.repeat(16_001) } })
+      .expect(400);
+    expect((await http.get('/views').set(auth())).body.items.length).toBe(
+      before,
+    );
+    const unchanged = await http
+      .get(`/views?scope=property&property_id=${propertyId}`)
+      .set(auth());
+    expect(
+      unchanged.body.items.find((x: { id: number }) => x.id === v.body.id)
+        .config,
+    ).toEqual(config);
   });
 
   it('deleting a property removes all derived data', async () => {

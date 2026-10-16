@@ -22,7 +22,7 @@ export interface MetricDelta {
 export interface SyncRun {
   id: number;
   kind: "backfill" | "incremental" | "top";
-  status: "running" | "ok" | "failed";
+  status: "running" | "ok" | "partial" | "failed";
   started_at: string;
   finished_at: string | null;
   rows_upserted: number;
@@ -41,6 +41,7 @@ export interface PropertyRow {
   last_sync_at: string | null;
   data_since: string | null;
   last_error: string | null;
+  last_sync_status: "ok" | "partial" | "failed" | null;
   created_at: string;
   syncing?: boolean;
   last_run?: SyncRun | null;
@@ -58,6 +59,7 @@ export interface PropertyKpi {
   status: PropertyStatus;
   data_since: string | null;
   last_sync_at: string | null;
+  last_sync_status: "ok" | "partial" | "failed" | null;
   current: MetricTotals;
   previous: MetricTotals;
   delta: MetricDelta;
@@ -75,6 +77,7 @@ export interface FleetOverview {
     properties: number;
     connected: number;
     syncedToday: number;
+    partial: number;
     dataThrough: string | null;
   };
   items: PropertyKpi[];
@@ -86,7 +89,8 @@ export interface FleetSeries {
   points: ({ date: string; total: number } & Record<string, number | string>)[];
 }
 
-export type Dimension = "query" | "page" | "country" | "device" | "search_appearance";
+export type Dimension =
+  "query" | "page" | "country" | "device" | "search_appearance";
 
 /** One aggregated key (query text, page URL, country code, device, appearance) over the period. */
 export interface TopRow {
@@ -99,20 +103,70 @@ export interface TopRow {
 }
 
 export interface DimensionBreakdown {
-  rows: { key: string; clicks: number; impressions: number; ctr: number; position: number }[];
-  filters?: { include?: string; exclude?: string };
+  rows: {
+    key: string;
+    clicks: number;
+    impressions: number;
+    ctr: number;
+    position: number;
+  }[];
+  filters?: { include?: string; exclude?: string; keys?: string[] };
   coverage: { clicks: number | null; impressions: number | null };
   stored: Period | null;
   days: number;
+  unavailable?: { reason: "cross_dimension"; message: string };
+}
+
+export interface DimensionCoverage {
+  status: "complete" | "truncated" | "failed";
+  reason?: "page_cap" | "error";
+  error?: string;
+  window: Period | null;
+  rows: number;
+  since_backfill_incomplete: boolean;
+}
+
+export interface PropertyCoverage {
+  run_id: number;
+  kind: string;
+  finished_at: string;
+  daily: { status: "complete" | "failed"; window: Period | null; rows: number };
+  dimensions: Partial<Record<Dimension, DimensionCoverage>>;
 }
 
 export interface PropertyDetail {
   property: PropertyRow;
   period: Period;
   previousPeriod: Period;
-  kpi: { current: MetricTotals; previous: MetricTotals; delta: MetricDelta };
-  series: { date: string; clicks: number; impressions: number; ctr: number; position: number }[];
+  filters: {
+    dimension: Dimension;
+    include?: string;
+    exclude?: string;
+    keys?: string[];
+  } | null;
+  kpi: {
+    source: Dimension | "property";
+    note: string | null;
+    comparison:
+      | { available: true }
+      | { available: false; reason: "no_stored_rows"; message: string };
+    current: MetricTotals;
+    previous: MetricTotals | null;
+    delta: MetricDelta;
+  };
+  series: {
+    date: string;
+    clicks: number;
+    impressions: number;
+    ctr: number;
+    position: number;
+  }[];
   breakdowns: Partial<Record<Dimension, DimensionBreakdown>>;
+  coverage: {
+    last_sync_status: "ok" | "partial" | "failed" | null;
+    detail: PropertyCoverage | null;
+    unreliable: Dimension[];
+  };
 }
 
 export interface Settings {
@@ -154,9 +208,18 @@ export interface KeyFilters {
   exclude_query?: string;
   include_page?: string;
   exclude_page?: string;
+  /** comma-separated ISO alpha-3 codes */
+  country?: string;
+  /** comma-separated DESKTOP / MOBILE / TABLET */
+  device?: string;
 }
 
-export type OpportunityRule = "clicks_drop" | "impressions_drop" | "low_ctr" | "near_page_one" | "cannibalization";
+export type OpportunityRule =
+  | "clicks_drop"
+  | "impressions_drop"
+  | "low_ctr"
+  | "near_page_one"
+  | "cannibalization";
 export type OpportunityStatus = "open" | "in_progress" | "done" | "dismissed";
 export type OpportunityPriority = "low" | "medium" | "high";
 export type OpportunitySubject = "property" | "page" | "query";
@@ -186,7 +249,14 @@ export interface Opportunity {
 export interface OpportunityEvent {
   id: number;
   user_id: number | null;
-  type: "created" | "evidence_updated" | "status" | "priority" | "assignee" | "due_date" | "note";
+  type:
+    | "created"
+    | "evidence_updated"
+    | "status"
+    | "priority"
+    | "assignee"
+    | "due_date"
+    | "note";
   payload: Record<string, unknown> | null;
   created_at: string;
 }
@@ -195,7 +265,11 @@ export interface OpportunityImpact {
   completed_on: string;
   window_days: number;
   before: { period: Period; totals: MetricTotals };
-  after: { period: Period; days_available: number; totals: MetricTotals | null };
+  after: {
+    period: Period;
+    days_available: number;
+    totals: MetricTotals | null;
+  };
   note: string | null;
 }
 
@@ -212,15 +286,44 @@ export interface OpportunityList {
 
 export interface RuleConfig {
   window_days: number;
-  clicks_drop: { enabled: boolean; min_previous_clicks: number; drop_ratio: number };
-  impressions_drop: { enabled: boolean; min_previous_impressions: number; drop_ratio: number };
-  low_ctr: { enabled: boolean; min_impressions: number; max_ctr: number; max_position: number };
-  near_page_one: { enabled: boolean; min_position: number; max_position: number; min_impressions: number };
-  cannibalization: { enabled: boolean; min_impressions: number; min_share: number };
+  clicks_drop: {
+    enabled: boolean;
+    min_previous_clicks: number;
+    drop_ratio: number;
+  };
+  impressions_drop: {
+    enabled: boolean;
+    min_previous_impressions: number;
+    drop_ratio: number;
+  };
+  low_ctr: {
+    enabled: boolean;
+    min_impressions: number;
+    max_ctr: number;
+    max_position: number;
+  };
+  near_page_one: {
+    enabled: boolean;
+    min_position: number;
+    max_position: number;
+    min_impressions: number;
+  };
+  cannibalization: {
+    enabled: boolean;
+    min_impressions: number;
+    min_share: number;
+  };
   regression_days: number;
 }
 
-export type ReportSection = "overview" | "pages" | "queries" | "countries" | "devices" | "search_appearance" | "opportunities";
+export type ReportSection =
+  | "overview"
+  | "pages"
+  | "queries"
+  | "countries"
+  | "devices"
+  | "search_appearance"
+  | "opportunities";
 
 export interface ReportConfig {
   period: { days?: number; start?: string; end?: string };

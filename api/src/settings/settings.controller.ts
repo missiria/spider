@@ -2,10 +2,11 @@ import { Body, Controller, Get, Put } from '@nestjs/common';
 import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { Roles } from '../auth/roles.guard';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Property } from '../properties/entities/property.entity';
 import { SyncRun } from '../sync/entities/sync-run.entity';
 import { GscService } from '../gsc/gsc.service';
+import { parseCoverage } from '../sync/coverage';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 
 class BrandDto {
@@ -34,17 +35,36 @@ export class SettingsController {
     @InjectRepository(SyncRun) private readonly runs: Repository<SyncRun>,
   ) {}
 
-  /** Operational view: what failed, what is stale. Used by the smoke test and the settings page. */
+  /**
+   * Operational view of the current workspace: what failed, what is stale, what is only
+   * partially covered. Used by the smoke test and the System page. "Fresh" (last_sync_at)
+   * and "complete" (coverage) are reported separately on purpose.
+   */
   @Get('health')
   async health() {
-    const props = await this.properties.find();
-    const staleBefore = new Date(Date.now() - 36 * 3_600_000);
-    const failedRuns = await this.runs.find({
-      where: { status: 'failed' },
-      order: { started_at: 'DESC' },
-      take: 20,
+    const workspaceId = this.workspaces.currentId();
+    const props = await this.properties.find({
+      where: { workspace_id: workspaceId },
     });
+    const ids = props.map((p) => p.id);
+    const staleBefore = new Date(Date.now() - 36 * 3_600_000);
+    const problemRuns = ids.length
+      ? await this.runs.find({
+          where: { property_id: In(ids), status: In(['failed', 'partial']) },
+          order: { started_at: 'DESC' },
+          take: 20,
+        })
+      : [];
+    const failedRuns = problemRuns.filter((r) => r.status === 'failed');
     const connected = props.filter((p) => p.status === 'connected');
+    const partial = props
+      .filter((p) => p.last_sync_status === 'partial')
+      .map((p) => ({
+        id: p.id,
+        site_url: p.site_url,
+        last_sync_at: p.last_sync_at,
+        coverage: parseCoverage(p.coverage),
+      }));
     return {
       properties: {
         total: props.length,
@@ -67,6 +87,7 @@ export class SettingsController {
             site_url: p.site_url,
             last_sync_at: p.last_sync_at,
           })),
+        partial,
       },
       failed_runs: failedRuns.map((r) => ({
         id: r.id,
@@ -75,10 +96,21 @@ export class SettingsController {
         started_at: r.started_at,
         error: r.error,
       })),
+      partial_runs: problemRuns
+        .filter((r) => r.status === 'partial')
+        .map((r) => ({
+          id: r.id,
+          property_id: r.property_id,
+          kind: r.kind,
+          started_at: r.started_at,
+          error: r.error,
+        })),
       mock: this.gsc.isMock(),
       ok:
         failedRuns.filter((r) => r.started_at > staleBefore).length === 0 &&
         connected.every((p) => p.last_sync_at && p.last_sync_at >= staleBefore),
+      /** true only when fresh AND every connected property's last run was complete */
+      complete: partial.length === 0,
     };
   }
 

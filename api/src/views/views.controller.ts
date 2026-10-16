@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -24,6 +25,7 @@ import {
 } from 'class-validator';
 import { Repository } from 'typeorm';
 import { AuthUser } from '../auth/jwt.strategy';
+import { PropertiesService } from '../properties/properties.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { SavedView, ViewScope } from './entities/saved-view.entity';
 
@@ -56,13 +58,27 @@ class UpdateViewDto {
   config?: Record<string, unknown>;
 }
 
-const MAX_CONFIG_BYTES = 16_000;
+/** stored in a TEXT column (65,535 bytes); keep well under it, measured in UTF-8 bytes */
+export const MAX_CONFIG_BYTES = 16_000;
+
+/** Serialize once, reject oversized configs before persistence instead of truncating them. */
+export function serializeConfig(config: Record<string, unknown>): string {
+  const json = JSON.stringify(config);
+  const bytes = Buffer.byteLength(json, 'utf8');
+  if (bytes > MAX_CONFIG_BYTES) {
+    throw new BadRequestException(
+      `config is ${bytes} bytes; the limit is ${MAX_CONFIG_BYTES} bytes`,
+    );
+  }
+  return json;
+}
 
 @Controller('views')
 export class ViewsController {
   constructor(
     @InjectRepository(SavedView) private readonly repo: Repository<SavedView>,
     private readonly workspaces: WorkspacesService,
+    private readonly properties: PropertiesService,
   ) {}
 
   private present(v: SavedView) {
@@ -85,7 +101,14 @@ export class ViewsController {
   @Post()
   async create(@Req() req: { user: AuthUser }, @Body() body: CreateViewDto) {
     const ws = await this.workspaces.current();
-    const config = JSON.stringify(body.config).slice(0, MAX_CONFIG_BYTES);
+    const config = serializeConfig(body.config);
+    if (body.scope === 'property') {
+      if (!body.property_id)
+        throw new BadRequestException(
+          'property_id is required for a property view',
+        );
+      await this.properties.get(body.property_id); // 404 outside this workspace
+    }
     const view = await this.repo.save(
       this.repo.create({
         workspace_id: ws.id,
@@ -107,8 +130,7 @@ export class ViewsController {
   ) {
     const view = await this.find(id);
     if (body.name !== undefined) view.name = body.name.trim();
-    if (body.config !== undefined)
-      view.config = JSON.stringify(body.config).slice(0, MAX_CONFIG_BYTES);
+    if (body.config !== undefined) view.config = serializeConfig(body.config);
     return this.present(await this.repo.save(view));
   }
 

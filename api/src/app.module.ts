@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -23,6 +23,7 @@ import { SettingsController } from './settings/settings.controller';
 import { SyncModule } from './sync/sync.module';
 import { UsersModule } from './users/users.module';
 import { ViewsModule } from './views/views.module';
+import { requestContextMiddleware } from './workspaces/request-context';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
 @Module({
@@ -69,4 +70,9 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     DefaultAdminSeeder,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /** Opens the per-request tenant store before any guard runs (ADR-0007). */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(requestContextMiddleware).forRoutes('{*path}');
+  }
+}

@@ -62,6 +62,14 @@ export class Property {
   @Column({ type: 'text', nullable: true })
   last_error: string | null;
 
+  /** outcome of the last finished sync run; null until one ran */
+  @Column({ type: 'enum', enum: ['ok', 'partial', 'failed'], nullable: true })
+  last_sync_status: 'ok' | 'partial' | 'failed' | null;
+
+  /** JSON PropertyCoverage (sync.service.ts): per-dimension completeness of stored data */
+  @Column({ type: 'text', nullable: true })
+  coverage: string | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   created_at: Date;
 

@@ -62,6 +62,8 @@ export interface ReportData {
       ctr: number | null;
       position: number | null;
     };
+    /** false when the comparison period has no stored rows (previous is then zeros, not data) */
+    comparison_available?: boolean;
     properties?: {
       id: number;
       display_name: string;
@@ -267,10 +269,17 @@ export class ReportsService {
       ? detail.series[detail.series.length - 1].date
       : null;
     if (cfg.sections.includes('overview')) {
+      // a period without stored rows for the comparison reports zeros + explicit flag, never a guess
       base.overview = {
         current: detail.kpi.current,
-        previous: detail.kpi.previous,
+        previous: detail.kpi.previous ?? {
+          clicks: 0,
+          impressions: 0,
+          ctr: 0,
+          position: 0,
+        },
         delta: detail.kpi.delta,
+        comparison_available: detail.kpi.comparison.available,
       };
     }
     for (const section of cfg.sections) {
@@ -561,7 +570,10 @@ export class ReportsService {
       duplicate: 0,
     };
     for (const s of due) {
-      const outcome = await this.runSchedule(s, now);
+      // the worker has no request: scope every schedule to its own workspace (ADR-0007)
+      const outcome = await this.workspaces.runAs(s.workspace_id, () =>
+        this.runSchedule(s, now),
+      );
       result[outcome] += 1;
     }
     return result;

@@ -4,15 +4,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
+import { WorkspacesService } from '../workspaces/workspaces.service';
 import { User, UserRole } from './entities/user.entity';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
+    private readonly workspaces: WorkspacesService,
   ) {}
 
   findByEmail(email: string): Promise<User | null> {
@@ -23,15 +25,30 @@ export class UsersService {
     return this.repo.count();
   }
 
-  listActive(): Promise<User[]> {
+  /** Active members of the current workspace (assignee picker, System page). */
+  async listActive(): Promise<User[]> {
+    const ids = await this.workspaces.memberIds(this.workspaces.currentId());
+    if (!ids.length) return [];
     return this.repo.find({
-      where: { is_active: true },
+      where: { id: In(ids), is_active: true },
       order: { name: 'ASC' },
     });
   }
 
   findById(id: number): Promise<User | null> {
     return this.repo.findOne({ where: { id } });
+  }
+
+  /** A user of the current workspace, 404 otherwise (ids from other tenants look absent). */
+  async findMember(id: number): Promise<User> {
+    const user = await this.findById(id);
+    if (
+      !user ||
+      !(await this.workspaces.isMember(this.workspaces.currentId(), user.id))
+    ) {
+      throw new NotFoundException('User not found');
+    }
+    return user;
   }
 
   async updateProfile(
@@ -68,22 +85,31 @@ export class UsersService {
     };
   }
 
+  /** Creates the account and its membership. Without `workspaceId` the current scope is used. */
   async create(input: {
     email: string;
     password: string;
     name: string;
     role?: UserRole;
+    workspaceId?: number;
   }): Promise<User> {
-    const user = this.repo.create({
-      email: input.email.trim().toLowerCase(),
-      password_hash: await bcrypt.hash(input.password, 10),
-      name: input.name,
-      role: input.role ?? 'admin',
-      is_active: true,
-    });
-    return this.repo.save(user);
+    const user = await this.repo.save(
+      this.repo.create({
+        email: input.email.trim().toLowerCase(),
+        password_hash: await bcrypt.hash(input.password, 10),
+        name: input.name,
+        role: input.role ?? 'admin',
+        is_active: true,
+      }),
+    );
+    await this.workspaces.addMember(
+      input.workspaceId ?? this.workspaces.currentId(),
+      user.id,
+    );
+    return user;
   }
 
+  /** Invite into the inviting admin's workspace; the one-time password is returned once. */
   async invite(input: {
     email: string;
     name: string;
@@ -104,15 +130,20 @@ export class UsersService {
     return { user, password };
   }
 
+  /** Deactivation also revokes every session: the next request with an old token is 401. */
   async deactivate(id: number, actingUserId: number): Promise<void> {
     if (id === actingUserId) {
       throw new ConflictException('You cannot deactivate your own account');
     }
-    const user = await this.findById(id);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    const user = await this.findMember(id);
     user.is_active = false;
+    user.token_version += 1;
+    await this.repo.save(user);
+  }
+
+  /** Invalidate every JWT issued so far for this user (ADR-0007). */
+  async revokeSessions(user: User): Promise<void> {
+    user.token_version += 1;
     await this.repo.save(user);
   }
 

@@ -2,15 +2,27 @@ import { describe, expect, it } from "vitest";
 import { applyTableState, DEFAULT_TABLE_STATE, toggleSort } from "./table";
 import type { PropertyKpi } from "./types";
 
-const row = (name: string, clicks: number, prevClicks: number, position: number, status: PropertyKpi["status"] = "connected"): PropertyKpi => ({
+const row = (
+  name: string,
+  clicks: number,
+  prevClicks: number,
+  position: number,
+  status: PropertyKpi["status"] = "connected",
+): PropertyKpi => ({
   id: name.length,
   site_url: `https://www.${name}/`,
   display_name: name,
   status,
   data_since: "2026-01-01",
   last_sync_at: null,
+  last_sync_status: null,
   current: { clicks, impressions: clicks * 10, ctr: 0.1, position },
-  previous: { clicks: prevClicks, impressions: prevClicks * 10, ctr: 0.1, position },
+  previous: {
+    clicks: prevClicks,
+    impressions: prevClicks * 10,
+    ctr: 0.1,
+    position,
+  },
   delta: {
     clicks: prevClicks ? (clicks - prevClicks) / prevClicks : null,
     impressions: prevClicks ? (clicks - prevClicks) / prevClicks : null,
@@ -28,7 +40,9 @@ const rows = [
 
 describe("fleet table state", () => {
   it("defaults to clicks descending", () => {
-    expect(applyTableState(rows, DEFAULT_TABLE_STATE).map((r) => r.display_name)).toEqual([
+    expect(
+      applyTableState(rows, DEFAULT_TABLE_STATE).map((r) => r.display_name),
+    ).toEqual([
       "iptv-premium-europe.com",
       "iptv-shark.com",
       "iptv-smarters-x.com",
@@ -37,16 +51,28 @@ describe("fleet table state", () => {
   });
 
   it("sorts by delta with missing deltas last in both directions", () => {
-    const desc = applyTableState(rows, { ...DEFAULT_TABLE_STATE, sortKey: "clicks_delta", sortDir: "desc" });
+    const desc = applyTableState(rows, {
+      ...DEFAULT_TABLE_STATE,
+      sortKey: "clicks_delta",
+      sortDir: "desc",
+    });
     expect(desc[0].display_name).toBe("iptv-shark.com"); // +110%
     expect(desc.slice(-2).map((r) => r.delta.clicks)).toEqual([null, null]);
-    const asc = applyTableState(rows, { ...DEFAULT_TABLE_STATE, sortKey: "clicks_delta", sortDir: "asc" });
+    const asc = applyTableState(rows, {
+      ...DEFAULT_TABLE_STATE,
+      sortKey: "clicks_delta",
+      sortDir: "asc",
+    });
     expect(asc[0].display_name).toBe("iptv-premium-europe.com"); // -6%
     expect(asc.slice(-2).map((r) => r.delta.clicks)).toEqual([null, null]);
   });
 
   it("position ascending puts best position first and empty positions last", () => {
-    const sorted = applyTableState(rows, { ...DEFAULT_TABLE_STATE, sortKey: "position", sortDir: "asc" });
+    const sorted = applyTableState(rows, {
+      ...DEFAULT_TABLE_STATE,
+      sortKey: "position",
+      sortDir: "asc",
+    });
     expect(sorted.map((r) => r.current.position)).toEqual([7.2, 7.6, 63.6, 0]);
   });
 
@@ -58,8 +84,14 @@ describe("fleet table state", () => {
   });
 
   it("filters by search, status and empty rows", () => {
-    expect(applyTableState(rows, { ...DEFAULT_TABLE_STATE, search: "shark" })).toHaveLength(1);
-    expect(applyTableState(rows, { ...DEFAULT_TABLE_STATE, status: "pending" })).toHaveLength(1);
-    expect(applyTableState(rows, { ...DEFAULT_TABLE_STATE, hideEmpty: true })).toHaveLength(3);
+    expect(
+      applyTableState(rows, { ...DEFAULT_TABLE_STATE, search: "shark" }),
+    ).toHaveLength(1);
+    expect(
+      applyTableState(rows, { ...DEFAULT_TABLE_STATE, status: "pending" }),
+    ).toHaveLength(1);
+    expect(
+      applyTableState(rows, { ...DEFAULT_TABLE_STATE, hideEmpty: true }),
+    ).toHaveLength(3);
   });
 });

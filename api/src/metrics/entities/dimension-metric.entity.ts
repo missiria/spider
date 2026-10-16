@@ -67,4 +67,8 @@ export class DimensionMetric {
 
   @Column({ type: 'double' })
   position: number;
+
+  /** sync run that last wrote the row; rows of a complete re-fetch not carrying it are stale */
+  @Column({ type: 'int', nullable: true })
+  run_id: number | null;
 }
