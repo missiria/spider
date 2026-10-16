@@ -6,6 +6,11 @@ terminates TLS; nginx on the VPS serves HTTP on :80 with `server_name spider.mis
 
 ## First deploy (owner / VPS operator)
 
+VPS: the EKSNEKS app server (root@81.17.98.31), clone at `/var/www/MISSIRIA/apps/spider-app`
+like go-app / shark-app / leader-app. Node ≥ 20 (24 LTS) and pm2 are already installed there.
+
+0. `git clone git@github.com:missiria/spider.git /var/www/MISSIRIA/apps/spider-app`, then work from
+   that directory.
 1. `cp deploy/env/api.env.example deploy/env/api.env` and `cp deploy/env/web.env.example deploy/env/web.env`,
    fill the secrets (both gitignored). The API **refuses to start** in production when
    `JWT_SECRET` is short/placeholder, `ADMIN_PASSWORD` is a placeholder, `GSC_MOCK=1` or
@@ -13,7 +18,8 @@ terminates TLS; nginx on the VPS serves HTTP on :80 with `server_name spider.mis
    `openssl rand -base64 48`; `INTERNAL_PROXY_SECRET` must be identical in `api.env` and `web.env`.
 2. MySQL 8 on the VPS: `CREATE DATABASE pro_spider_app_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
    plus a dedicated user with rights on that database only.
-3. `npm ci && npm run build && npm run db:migrate`
+3. `npm ci && npm run build && npm run db:migrate` (`db:migrate` = `deploy/migrate.cjs`: it reuses the env
+   parsed by `ecosystem.config.cjs`, so migrations hit the same database as pm2).
 4. `pm2 start ecosystem.config.cjs && pm2 save` → `spider-api` (:8090) and `spider-web` (:8091).
 5. nginx: symlink `deploy/nginx/spider.conf` into `/etc/nginx/sites-enabled/`, `nginx -t`, reload. The
    conf carries Cloudflare's `set_real_ip_from` ranges (refresh them from cloudflare.com/ips when they
@@ -25,6 +31,11 @@ terminates TLS; nginx on the VPS serves HTTP on :80 with `server_name spider.mis
 7. Smoke test: `scripts/smoke.sh https://spider.missiria.dev <admin email> '<password>'`.
 8. First login with `ADMIN_EMAIL` / `ADMIN_PASSWORD`; change the name/email in Settings; invite
    beta users from System → Beta access.
+
+Gotcha: the global `deploy` script evaluates whether `db:migrate` exists **before** `git pull`. A commit
+that adds or renames that script ships without migrating; re-dispatch with
+`gh workflow run deploy.yml --ref main` after the first run finishes (never run `deploy spider` by hand
+while an Actions deploy is running).
 
 ## Every deploy
 
