@@ -11,7 +11,21 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid min-h-dvh lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+    <div className="grid min-h-dvh lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <main className="flex min-h-dvh flex-col px-4 py-8 sm:px-10">
+        <Link
+          href="/login"
+          className="flex items-center gap-2.5 text-lg font-semibold lg:hidden"
+        >
+          <SpiderMark />
+          Spider
+        </Link>
+        <div className="flex flex-1 items-center justify-center py-10">
+          <div className="w-full max-w-sm">{children}</div>
+        </div>
+        <p className="text-center text-xs text-muted">Spider by MISSIRIA</p>
+      </main>
+
       <aside className="auth-panel relative hidden overflow-hidden lg:flex lg:flex-col lg:justify-between lg:p-12">
         <Link
           href="/login"
@@ -38,20 +52,6 @@ export default function AuthLayout({
           </p>
         </div>
       </aside>
-
-      <main className="flex min-h-dvh flex-col px-4 py-8 sm:px-10">
-        <Link
-          href="/login"
-          className="flex items-center gap-2.5 text-lg font-semibold lg:hidden"
-        >
-          <SpiderMark />
-          Spider
-        </Link>
-        <div className="flex flex-1 items-center justify-center py-10">
-          <div className="w-full max-w-sm">{children}</div>
-        </div>
-        <p className="text-center text-xs text-muted">Spider by MISSIRIA</p>
-      </main>
     </div>
   );
 }
