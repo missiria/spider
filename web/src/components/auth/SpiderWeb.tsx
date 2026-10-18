@@ -1,6 +1,6 @@
 /**
- * The sign-in hero: one web, one node per property on the outer ring, signals travelling
- * inward to Spider at the centre. Geometry is computed once at module load (deterministic,
+ * The sign-in hero: one web, one node per property on the outer ring, the SEO signals Spider
+ * reads written across it, and pulses travelling inward to Spider at the centre. Geometry is computed once at module load (deterministic,
  * so server and client render the same markup). Motion lives in globals.css (`.web-*`) and
  * stops under prefers-reduced-motion.
  */
@@ -33,15 +33,51 @@ const nodes = Array.from({ length: SPOKES }, (_, i) =>
   at(RINGS[RINGS.length - 1], angle(i)),
 );
 
+// what Spider watches, written on the web; a signal running down a spoke lights its word
+const OUTER = RINGS[RINGS.length - 1] + 26;
+const LABELS = [
+  { spoke: 0, r: 211, text: "SEO" },
+  { spoke: 2, r: 211, text: "Semantic" },
+  { spoke: 4, r: 211, text: "Topical links" },
+  { spoke: 6, r: 211, text: "Core Web Vitals" },
+  { spoke: 8, r: 211, text: "Crawl" },
+  { spoke: 10, r: 211, text: "GEO" },
+  { spoke: 12, r: 211, text: "Backlinks" },
+  { spoke: 14, r: 211, text: "AI search" },
+  { spoke: 3, r: 148, text: "Entities" },
+  { spoke: 7, r: 148, text: "Intent" },
+  { spoke: 11, r: 148, text: "Indexing" },
+  { spoke: 15, r: 148, text: "CTR" },
+].map((l, i) => {
+  const [x, y] = at(l.r, angle(l.spoke));
+  // rough text width at 11px; the pill only has to keep threads off the letters
+  return {
+    ...l,
+    x,
+    y,
+    w: Math.round(l.text.length * 6.4 + 16),
+    d: 1.6 + 0.07 * i,
+  };
+});
+
 // a handful of spokes carry a signal, staggered so it never pulses in unison
 const PULSES = [
-  { spoke: 1, delay: 2.2, dur: 3.4 },
+  { spoke: 0, delay: 2.2, dur: 3.4 },
+  { spoke: 2, delay: 4.4, dur: 4.0 },
   { spoke: 4, delay: 3.1, dur: 4.1 },
   { spoke: 7, delay: 2.6, dur: 3.7 },
   { spoke: 10, delay: 4.0, dur: 3.2 },
   { spoke: 12, delay: 3.5, dur: 4.4 },
-  { spoke: 15, delay: 2.9, dur: 3.9 },
+  { spoke: 14, delay: 2.9, dur: 3.9 },
 ];
+
+/** When a pulse reaches a label: same period, delayed by the share of the spoke it has run. */
+const glow = (spoke: number, r: number) => {
+  const p = PULSES.find((q) => q.spoke === spoke);
+  if (!p) return undefined;
+  const reach = p.delay + ((OUTER - r) / OUTER) * p.dur - 0.15 * p.dur;
+  return { "--gd": `${r2(reach)}s`, "--t": `${p.dur}s` };
+};
 
 const vars = (v: Record<string, string>) => v as React.CSSProperties;
 
@@ -96,6 +132,32 @@ export function SpiderWeb({ className = "" }: { className?: string }) {
           style={vars({ "--d": `${1.3 + 0.04 * i}s` })}
         />
       ))}
+      {LABELS.map((l) => {
+        const g = glow(l.spoke, l.r);
+        return (
+          <g
+            key={l.text}
+            className={`web-label${g ? " web-label-hot" : ""}`}
+            style={vars({ "--d": `${l.d}s`, ...g })}
+          >
+            <rect
+              x={r2(l.x - l.w / 2)}
+              y={r2(l.y - 10)}
+              width={l.w}
+              height="20"
+              rx="10"
+            />
+            <text
+              x={l.x}
+              y={l.y}
+              textAnchor="middle"
+              dominantBaseline="central"
+            >
+              {l.text}
+            </text>
+          </g>
+        );
+      })}
       <circle cx={C} cy={C} r="54" fill="url(#web-core)" className="web-core" />
       <circle
         cx={C}

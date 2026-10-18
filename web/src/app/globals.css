@@ -152,6 +152,46 @@ input.auth-input:-webkit-autofill {
   transform-origin: 300px 300px;
   animation: web-breathe 4.8s ease-in-out 1.4s infinite;
 }
+.web-label {
+  opacity: 0;
+  animation: web-fade 0.6s ease-out var(--d, 1.6s) forwards;
+}
+.web-label rect {
+  fill: #0a0e22;
+  stroke: var(--auth-thread);
+}
+.web-label text {
+  fill: var(--auth-copy);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.web-label-hot rect {
+  animation: web-glow-pill var(--t, 3.6s) ease-in-out var(--gd, 2s) infinite;
+}
+.web-label-hot text {
+  animation: web-glow-text var(--t, 3.6s) ease-in-out var(--gd, 2s) infinite;
+}
+@keyframes web-glow-pill {
+  0%,
+  40%,
+  100% {
+    stroke: var(--auth-thread);
+  }
+  15% {
+    stroke: var(--auth-signal);
+  }
+}
+@keyframes web-glow-text {
+  0%,
+  40%,
+  100% {
+    fill: var(--auth-copy);
+  }
+  15% {
+    fill: #ffffff;
+  }
+}
 @keyframes web-draw {
   to {
     stroke-dashoffset: 0;
@@ -218,9 +258,14 @@ input.auth-input:-webkit-autofill {
     animation: none;
     stroke-dashoffset: 0;
   }
-  .web-node {
+  .web-node,
+  .web-label {
     animation: none;
     opacity: 1;
+  }
+  .web-label-hot rect,
+  .web-label-hot text {
+    animation: none;
   }
   .web-pulse,
   .web-core {
