@@ -59,6 +59,11 @@ class VerifyEmailDto {
   @MinLength(20)
   @MaxLength(128)
   token: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  password: string;
 }
 
 class ResetPasswordDto {
@@ -119,7 +124,7 @@ export class AuthController {
   @Post('verify-email')
   @HttpCode(204)
   async verifyEmail(@Body() body: VerifyEmailDto) {
-    await this.signup.verifyEmail(body.token);
+    await this.signup.verifyEmail(body.token, body.password);
   }
 
   @Public()

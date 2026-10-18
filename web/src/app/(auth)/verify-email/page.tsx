@@ -1,50 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2, MailCheck, MailX } from "lucide-react";
+import { MailCheck, MailX } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
-import { DoneState } from "@/components/auth/fields";
+import { Suspense, useState } from "react";
+import { DoneState, FormNotice, SubmitButton } from "@/components/auth/fields";
+import { PasswordField } from "@/components/auth/PasswordField";
 import { verifyEmail } from "@/lib/api";
 
 const secondaryLink =
   "inline-flex w-full justify-center rounded-lg border border-border bg-surface px-4 py-2.5 text-[15px] font-medium hover:bg-surface-muted";
 
-/** Opened from the signup email: confirms the address once, on load. */
+/**
+ * Opened from the signup email. Asks for the password chosen at signup: confirming needs both
+ * the inbox and the password, so nobody can get someone else's address approved.
+ */
 function Verify() {
   const token = useSearchParams().get("token") ?? "";
-  const [state, setState] = useState<"working" | "done" | "failed">(
-    token ? "working" : "failed",
-  );
-  const [message, setMessage] = useState(
-    "This link is incomplete. Open it exactly as it was sent.",
-  );
-  const sent = useRef(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
 
-  useEffect(() => {
-    // strict mode mounts twice in dev; the token is single use
-    if (!token || sent.current) return;
-    sent.current = true;
-    verifyEmail(token)
-      .then(() => setState("done"))
-      .catch((err: unknown) => {
-        setMessage(err instanceof Error ? err.message : String(err));
-        setState("failed");
-      });
-  }, [token]);
-
-  if (state === "working") {
+  if (!token) {
     return (
-      <div
-        className="flex items-center gap-3 text-[15px] text-muted"
-        role="status"
+      <DoneState
+        icon={<MailX className="h-5 w-5" />}
+        title="This link is incomplete"
+        action={
+          <Link href="/register" className={secondaryLink}>
+            Sign up again
+          </Link>
+        }
       >
-        <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-        Confirming your email…
-      </div>
+        Open the link from your confirmation email exactly as it was sent.
+      </DoneState>
     );
   }
-  if (state === "done") {
+
+  if (done) {
     return (
       <DoneState
         icon={<MailCheck className="h-5 w-5" />}
@@ -60,18 +55,44 @@ function Verify() {
       </DoneState>
     );
   }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await verifyEmail(token, password);
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setNonce((n) => n + 1);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <DoneState
-      icon={<MailX className="h-5 w-5" />}
-      title="We couldn't confirm this email"
-      action={
-        <Link href="/register" className={secondaryLink}>
-          Sign up again
-        </Link>
-      }
-    >
-      {message}
-    </DoneState>
+    <>
+      <h1 className="text-2xl font-semibold tracking-tight">
+        Confirm your email
+      </h1>
+      <p className="mt-1.5 text-[15px] text-muted">
+        Enter the password you chose when you signed up.
+      </p>
+      <form onSubmit={submit} className="auth-swap mt-8 space-y-5">
+        <PasswordField
+          label="Password"
+          value={password}
+          onChange={setPassword}
+          autoComplete="current-password"
+          invalid={!!error}
+        />
+        {error && <FormNotice tone="error" message={error} nonce={nonce} />}
+        <SubmitButton busy={busy} busyLabel="Confirming…">
+          Confirm email
+        </SubmitButton>
+      </form>
+    </>
   );
 }
 

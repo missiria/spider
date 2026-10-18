@@ -76,8 +76,8 @@ export const registerAccount = (body: {
   password: string;
   company?: string;
 }) => accountAction("register", body);
-export const verifyEmail = (token: string) =>
-  accountAction("verify-email", { token });
+export const verifyEmail = (token: string, password: string) =>
+  accountAction("verify-email", { token, password });
 export const requestPasswordReset = (email: string) =>
   accountAction("forgot-password", { email });
 export const resetPassword = (token: string, password: string) =>

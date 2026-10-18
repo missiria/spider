@@ -1212,19 +1212,25 @@ describe('Spider API (e2e)', () => {
     expect(dup.body).toEqual(fresh.body);
     await http
       .post('/auth/verify-email')
-      .send({ token: attackerToken })
+      .send({ token: attackerToken, password: 'Attacker-pass-999' })
       .expect(400);
     const confirm = await waitMail(
       (m) => m.to.includes('new@example.com') && m.subject.includes('Confirm'),
     );
     const verifyToken = /verify-email\?token=([\w-]+)/.exec(confirm.text)![1];
+    // confirming needs the password of THIS request: the attacker's does not work even with
+    // the link, and a wrong password leaves the link usable
     await http
       .post('/auth/verify-email')
-      .send({ token: verifyToken })
+      .send({ token: verifyToken, password: 'Attacker-pass-999' })
+      .expect(400);
+    await http
+      .post('/auth/verify-email')
+      .send({ token: verifyToken, password: body.password })
       .expect(204);
     await http
       .post('/auth/verify-email')
-      .send({ token: verifyToken })
+      .send({ token: verifyToken, password: body.password })
       .expect(400);
     const notice = await waitMail((m) => m.subject.includes('New Person'));
     expect(notice.to).toContain('e2e-admin@example.com');
@@ -1290,7 +1296,10 @@ describe('Spider API (e2e)', () => {
     );
     await http
       .post('/auth/verify-email')
-      .send({ token: /verify-email\?token=([\w-]+)/.exec(nopeMail.text)![1] })
+      .send({
+        token: /verify-email\?token=([\w-]+)/.exec(nopeMail.text)![1],
+        password: 'Signup-pass-123',
+      })
       .expect(204);
     const again = await http.get('/signups').set(auth()).expect(200);
     const nope = again.body.items.find(

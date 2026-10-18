@@ -26,6 +26,7 @@ test.describe("auth pages", () => {
     for (const next of [
       "/\\evil.example",
       "//evil.example",
+      "/.//evil.example",
       "https://evil.example/x",
     ]) {
       await page.goto(`/login?next=${encodeURIComponent(next)}`, {
@@ -105,8 +106,10 @@ test.describe("auth pages", () => {
     await page.goto("/verify-email?token=not-a-real-token-but-long-enough", {
       waitUntil: "networkidle",
     });
+    await page.getByLabel("Password", { exact: true }).fill("Whatever-pass-1");
+    await page.getByRole("button", { name: "Confirm email" }).click();
     await expect(
-      page.getByRole("heading", { name: "We couldn't confirm this email" }),
+      page.getByRole("alert").filter({ hasText: "invalid or has expired" }),
     ).toBeVisible();
     await page.goto("/reset-password");
     await expect(

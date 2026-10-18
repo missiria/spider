@@ -17,8 +17,10 @@ function safeNext(raw: string | null): string {
   if (!raw || /[\\\u0000-\u001f]/.test(raw)) return "/";
   try {
     const url = new URL(raw, window.location.origin);
-    return url.origin === window.location.origin
-      ? `${url.pathname}${url.search}${url.hash}`
+    const out = `${url.pathname}${url.search}${url.hash}`;
+    // `/.//evil.example` normalises to the pathname `//evil.example`: protocol-relative again
+    return url.origin === window.location.origin && !/^\/[\/\\]/.test(out)
+      ? out
       : "/";
   } catch {
     return "/";

@@ -81,10 +81,18 @@ export class SignupService {
       this.logger.log(`register: existing email user=${existing.id}`);
       return;
     }
+    // checked before anything changes: a flood of re-registrations cannot keep rewriting the
+    // record or retiring links once the hourly mail budget of the address is spent
+    if (existing && (await this.capReached(existing.id, 'verify'))) {
+      this.logger.warn(`register: hourly cap reached user=${existing.id}`);
+      return;
+    }
     let user: User;
     if (existing) {
-      // nobody proved this address yet: the newest request replaces the old one, and links
-      // sent for the old one stop working (token_version bump)
+      // nobody proved this address yet: the newest request replaces the old one (so a stranger
+      // cannot squat the real owner's email) and older links die (token_version bump). Taking
+      // over is still impossible: confirming requires the inbox AND the password of the
+      // request being confirmed (verifyEmail).
       existing.name = input.name.trim();
       existing.company = input.company?.trim() || null;
       existing.password_hash = hash;
@@ -124,8 +132,13 @@ export class SignupService {
     );
   }
 
-  /** Confirms the signup address: the request becomes visible to operators. */
-  async verifyEmail(token: string): Promise<void> {
+  /**
+   * Confirms the signup address: the request becomes visible to operators. The password typed
+   * at signup is required too, so the inbox owner can only confirm a request they made: if a
+   * stranger re-registered the address in between, the owner's password does not match and
+   * nothing is confirmed. A wrong password does not consume the link.
+   */
+  async verifyEmail(token: string, password: string): Promise<void> {
     const found = await this.consumable(token, 'verify');
     if (!found || found.user.approval_status !== 'unverified') {
       throw new BadRequestException(
@@ -133,6 +146,11 @@ export class SignupService {
       );
     }
     const { user } = found;
+    if (!(await bcrypt.compare(password, user.password_hash))) {
+      throw new BadRequestException(
+        'That is not the password of this signup. Use the one you chose when you signed up, or sign up again.',
+      );
+    }
     user.approval_status = 'pending';
     await this.users.save(user);
     await this.retireTokens(user.id, 'verify');
@@ -251,14 +269,7 @@ export class SignupService {
     purpose: TokenPurpose,
     ttlMs: number,
   ): Promise<string | null> {
-    const recent = await this.resets.count({
-      where: {
-        user_id: user.id,
-        purpose,
-        created_at: MoreThan(new Date(Date.now() - 60 * 60_000)),
-      },
-    });
-    if (recent >= MAILS_PER_HOUR) {
+    if (await this.capReached(user.id, purpose)) {
       this.logger.warn(`${purpose}: hourly cap reached user=${user.id}`);
       return null;
     }
@@ -275,6 +286,20 @@ export class SignupService {
       }),
     );
     return token;
+  }
+
+  private async capReached(
+    userId: number,
+    purpose: TokenPurpose,
+  ): Promise<boolean> {
+    const recent = await this.resets.count({
+      where: {
+        user_id: userId,
+        purpose,
+        created_at: MoreThan(new Date(Date.now() - 60 * 60_000)),
+      },
+    });
+    return recent >= MAILS_PER_HOUR;
   }
 
   /**
