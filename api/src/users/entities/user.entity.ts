@@ -8,6 +8,9 @@ import {
 
 export type UserRole = 'admin' | 'member';
 
+/** self-service signups start `pending` and cannot sign in until an operator approves */
+export type ApprovalStatus = 'approved' | 'pending' | 'rejected';
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn()
@@ -27,6 +30,17 @@ export class User {
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: ['approved', 'pending', 'rejected'],
+    default: 'approved',
+  })
+  approval_status: ApprovalStatus;
+
+  /** company typed on the signup form; names the workspace created on approval */
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  company: string | null;
 
   /** bumped to revoke every session issued before (JWT carries it as `ver`) */
   @Column({ type: 'int', unsigned: true, default: 0 })

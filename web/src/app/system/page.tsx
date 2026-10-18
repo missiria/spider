@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { AppShell } from "@/components/AppShell";
+import { SignupsCard } from "@/components/SignupsCard";
 import { Button, Card, ErrorBox, Spinner } from "@/components/ui";
 import {
   deactivateUser,
@@ -247,6 +248,8 @@ export default function SystemPage() {
               </ul>
             )}
           </Card>
+
+          {isAdmin && <SignupsCard />}
 
           <Card className="p-5">
             <h2 className="font-medium">Beta access</h2>

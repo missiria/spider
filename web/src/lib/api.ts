@@ -46,9 +46,51 @@ export async function startSession(
   return data.user as AuthResponse["user"];
 }
 
+/** Public account actions, proxied by /auth/account/* (see that route). */
+async function accountAction(
+  action: "register" | "forgot-password" | "reset-password",
+  body: Record<string, string>,
+): Promise<void> {
+  const res = await fetch(`/auth/account/${action}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return;
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+  };
+  const msg = Array.isArray(data.message)
+    ? data.message.join(", ")
+    : data.message;
+  throw new Error(
+    res.status === 429
+      ? "Too many attempts. Wait a minute and try again."
+      : (msg ?? "Something went wrong"),
+  );
+}
+
+export const registerAccount = (body: {
+  name: string;
+  email: string;
+  password: string;
+  company?: string;
+}) => accountAction("register", body);
+export const requestPasswordReset = (email: string) =>
+  accountAction("forgot-password", { email });
+export const resetPassword = (token: string, password: string) =>
+  accountAction("reset-password", { token, password });
+
 export async function endSession(): Promise<void> {
   await fetch("/auth/session", { method: "DELETE" }).catch(() => undefined);
 }
+
+export const AUTH_PAGES = [
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+];
 
 // Same-origin: next.config rewrites /api/* to the NestJS API.
 export const api = axios.create({ baseURL: "/api", timeout: 30_000 });
@@ -57,7 +99,7 @@ api.interceptors.response.use(
   (res) => res,
   (error: AxiosError) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      if (!window.location.pathname.startsWith("/login")) {
+      if (!AUTH_PAGES.some((p) => window.location.pathname.startsWith(p))) {
         void endSession().then(() => {
           window.location.href = "/login";
         });
@@ -229,6 +271,18 @@ export const deactivateUser = (id: number) => api.delete(`/users/${id}`);
 
 export const revokeUserSessions = (id: number) =>
   api.post(`/users/${id}/revoke-sessions`);
+
+export interface PendingSignup {
+  id: number;
+  email: string;
+  name: string;
+  company: string | null;
+  created_at: string;
+}
+export const listSignups = () =>
+  api.get<{ items: PendingSignup[] }>("/signups").then((r) => r.data.items);
+export const approveSignup = (id: number) => api.post(`/signups/${id}/approve`);
+export const rejectSignup = (id: number) => api.post(`/signups/${id}/reject`);
 
 export const revokeMySessions = () => api.post("/auth/revoke-sessions");
 

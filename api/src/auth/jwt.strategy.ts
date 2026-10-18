@@ -70,7 +70,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: JwtPayload): Promise<AuthUser> {
     const user = await this.users.findById(Number(payload.sub));
-    if (!user || !user.is_active) {
+    if (!user || !user.is_active || user.approval_status !== 'approved') {
       throw new UnauthorizedException('Session is no longer valid');
     }
     if ((payload.ver ?? 0) !== user.token_version) {

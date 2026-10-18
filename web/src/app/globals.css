@@ -110,3 +110,125 @@ textarea {
   border-color: var(--border) !important;
   color: var(--foreground) !important;
 }
+
+/* ---- auth pages (MISS-0116) -------------------------------------------- */
+
+/* the brand panel is always ink, whatever the theme */
+.auth-panel {
+  --auth-thread: rgb(129 140 248 / 0.22);
+  --auth-node: rgb(165 180 252 / 0.55);
+  --auth-signal: #c7d2fe;
+  --auth-copy: #a5b0d0;
+  background:
+    radial-gradient(120% 80% at 50% 46%, #18204a 0%, transparent 60%), #0a0e22;
+}
+
+/* browsers paint autofilled inputs yellow; keep the theme instead */
+.auth-input input:-webkit-autofill,
+input.auth-input:-webkit-autofill {
+  -webkit-text-fill-color: var(--foreground);
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+  caret-color: var(--foreground);
+  transition: background-color 9999s ease-out 0s;
+}
+
+.web-thread {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: web-draw 1.6s cubic-bezier(0.6, 0, 0.2, 1) var(--d, 0s) forwards;
+}
+.web-pulse {
+  stroke-dasharray: 0.08 1.2;
+  stroke-dashoffset: 0.08;
+  opacity: 0;
+  animation: web-pulse var(--t, 3.6s) cubic-bezier(0.45, 0, 0.75, 1)
+    var(--d, 2s) infinite;
+}
+.web-node {
+  opacity: 0;
+  animation: web-fade 0.5s ease-out var(--d, 1s) forwards;
+}
+.web-core {
+  transform-origin: 300px 300px;
+  animation: web-breathe 4.8s ease-in-out 1.4s infinite;
+}
+@keyframes web-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes web-pulse {
+  0% {
+    stroke-dashoffset: 0.08;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: -0.96;
+    opacity: 0;
+  }
+}
+@keyframes web-fade {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes web-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+.auth-swap {
+  animation: auth-in 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.auth-shake {
+  animation: auth-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes auth-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes auth-shake {
+  20%,
+  60% {
+    transform: translateX(-5px);
+  }
+  40%,
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .web-thread {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .web-node {
+    animation: none;
+    opacity: 1;
+  }
+  .web-pulse,
+  .web-core {
+    animation: none;
+    display: none;
+  }
+  .auth-swap,
+  .auth-shake {
+    animation: none;
+  }
+}

@@ -12,6 +12,7 @@ import {
   IsEmail,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -21,6 +22,48 @@ import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { AuthUser } from './jwt.strategy';
 import { ClientIp } from './client-ip.throttler.guard';
+import { SignupService } from './signup.service';
+
+/** 10+ chars with a letter and a digit; 72 = bcrypt's input limit */
+const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).{10,72}$/;
+const PASSWORD_MESSAGE =
+  'Password must be 10 to 72 characters with at least one letter and one digit';
+
+class RegisterDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name: string;
+
+  @IsEmail()
+  @MaxLength(255)
+  email: string;
+
+  @IsString()
+  @Matches(PASSWORD_RULE, { message: PASSWORD_MESSAGE })
+  password: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  company?: string;
+}
+
+class ForgotPasswordDto {
+  @IsEmail()
+  email: string;
+}
+
+class ResetPasswordDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(128)
+  token: string;
+
+  @IsString()
+  @Matches(PASSWORD_RULE, { message: PASSWORD_MESSAGE })
+  password: string;
+}
 
 class LoginDto {
   @IsEmail()
@@ -50,7 +93,41 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly users: UsersService,
+    private readonly signup: SignupService,
   ) {}
+
+  /** Always the same answer: whether the email already exists is not disclosed. */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('register')
+  @HttpCode(202)
+  async register(@Body() body: RegisterDto, @ClientIp() ip: string) {
+    this.logger.log(`register attempt ip=${ip}`);
+    await this.signup.register(body);
+    return { status: 'pending' };
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('forgot-password')
+  @HttpCode(202)
+  async forgotPassword(
+    @Body() body: ForgotPasswordDto,
+    @ClientIp() ip: string,
+  ) {
+    this.logger.log(`forgot-password ip=${ip}`);
+    await this.signup.requestPasswordReset(body.email);
+    return { status: 'sent' };
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('reset-password')
+  @HttpCode(204)
+  async resetPassword(@Body() body: ResetPasswordDto) {
+    const email = await this.signup.resetPassword(body.token, body.password);
+    this.auth.clearFailures(email);
+  }
 
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

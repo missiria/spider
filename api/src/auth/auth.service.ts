@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -65,11 +66,22 @@ export class AuthService {
       // same cost as a real check so timing does not reveal unknown accounts
       await bcrypt.compare(password ?? '', DUMMY_HASH);
     }
-    if (!user || !user.is_active || !ok) {
+    if (
+      !user ||
+      !user.is_active ||
+      !ok ||
+      user.approval_status === 'rejected'
+    ) {
       this.recordFailure(key, account);
       throw new UnauthorizedException('Invalid credentials');
     }
     this.failures.delete(key);
+    // only said after the right password: a guess cannot learn the account is pending
+    if (user.approval_status !== 'approved') {
+      throw new ForbiddenException(
+        'Your account is awaiting approval. We will email you as soon as it is ready.',
+      );
+    }
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -85,6 +97,15 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  /** After a password reset the owner of the account starts with a clean slate. */
+  clearFailures(email: string): void {
+    const account = email.trim().toLowerCase();
+    this.accountFailures.delete(account);
+    for (const k of [...this.failures.keys()]) {
+      if (k.startsWith(`${account}|`)) this.failures.delete(k);
+    }
   }
 
   /** How long the next attempt on `account` waits (0 when under the soft limit). */

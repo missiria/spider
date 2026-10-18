@@ -15,6 +15,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { getStorageToken } from '@nestjs/throttler';
 import { createHmac } from 'node:crypto';
 import * as nodeHttp from 'node:http';
+import { MailerService } from '../src/integrations/mailer.service';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 process.env.DB_DATABASE = process.env.E2E_DB_DATABASE ?? 'pro_spider_app_test';
@@ -45,11 +46,23 @@ describe('Spider API (e2e)', () => {
   let http: ReturnType<typeof request>;
   let token = '';
   const auth = () => ({ Authorization: `Bearer ${token}` });
+  // records mails instead of sending; still reports "skipped" like a mailer without SMTP
+  const mails: { to: string[]; subject: string; text: string }[] = [];
+  const fakeMailer = {
+    isConfigured: () => false,
+    send: async (m: { to: string[]; subject: string; text: string }) => {
+      mails.push(m);
+      return { skipped: true };
+    },
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(MailerService)
+      .useValue(fakeMailer)
+      .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
       new ValidationPipe({
@@ -85,6 +98,7 @@ describe('Spider API (e2e)', () => {
       'daily_metrics',
       'properties',
       'workspace_members',
+      'password_resets',
       'users',
       'workspaces',
     ]) {
@@ -1145,5 +1159,150 @@ describe('Spider API (e2e)', () => {
       expect({ table: t, n: Number(n[0].n) }).toEqual({ table: t, n: 0 });
     }
     await http.get(`/properties/${propertyId}`).set(auth()).expect(404);
+  });
+
+  // ---- MISS-0116 ---------------------------------------------------------
+
+  it('signup: pending until an operator approves; no email enumeration; own workspace on approval', async () => {
+    const waitMail = async (pred: (m: (typeof mails)[number]) => boolean) => {
+      for (let i = 0; i < 50; i++) {
+        const m = mails.find(pred);
+        if (m) return m;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      throw new Error('mail not sent');
+    };
+    await http
+      .post('/auth/register')
+      .send({ name: 'New', email: 'new@example.com', password: 'short' })
+      .expect(400);
+    const body = {
+      name: 'New Person',
+      email: 'New@Example.com',
+      password: 'Signup-pass-123',
+      company: 'Acme SEO',
+    };
+    const fresh = await http.post('/auth/register').send(body).expect(202);
+    // an existing address gets the very same answer
+    const dup = await http
+      .post('/auth/register')
+      .send({ ...body, email: 'e2e-admin@example.com' })
+      .expect(202);
+    expect(dup.body).toEqual(fresh.body);
+    const notice = await waitMail((m) => m.subject.includes('New Person'));
+    expect(notice.to).toContain('e2e-admin@example.com');
+
+    // pending: right password → 403 with a clear message, wrong password → 401
+    await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: 'wrong' })
+      .expect(401);
+    const pending = await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: body.password })
+      .expect(403);
+    expect(pending.body.message).toMatch(/awaiting approval/);
+    // forgot-password does nothing for a pending account
+    const before = mails.length;
+    await http
+      .post('/auth/forgot-password')
+      .send({ email: 'new@example.com' })
+      .expect(202);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(mails.length).toBe(before);
+
+    const list = await http.get('/signups').set(auth()).expect(200);
+    const signup = list.body.items.find(
+      (u: { email: string }) => u.email === 'new@example.com',
+    );
+    expect(signup).toMatchObject({ name: 'New Person', company: 'Acme SEO' });
+    const approved = await http
+      .post(`/signups/${signup.id}/approve`)
+      .set(auth())
+      .expect(201);
+    expect(approved.body.workspace.slug).toBe('acme-seo');
+    await http.post(`/signups/${signup.id}/approve`).set(auth()).expect(404);
+
+    const login = await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: body.password })
+      .expect(200);
+    const newAuth = { Authorization: `Bearer ${login.body.token}` };
+    expect(login.body.user.role).toBe('admin');
+    // own, empty workspace: nothing from the operator's workspace
+    const props = await http.get('/properties').set(newAuth).expect(200);
+    expect(JSON.stringify(props.body)).not.toContain('puntomira');
+    // a customer admin is not an operator
+    await http.get('/signups').set(newAuth).expect(403);
+
+    // reject: a second signup can never sign in
+    await http
+      .post('/auth/register')
+      .send({
+        name: 'Nope',
+        email: 'nope@example.com',
+        password: 'Signup-pass-123',
+      })
+      .expect(202);
+    const again = await http.get('/signups').set(auth()).expect(200);
+    const nope = again.body.items.find(
+      (u: { email: string }) => u.email === 'nope@example.com',
+    );
+    await http.post(`/signups/${nope.id}/reject`).set(auth()).expect(204);
+    await http
+      .post('/auth/login')
+      .send({ email: 'nope@example.com', password: 'Signup-pass-123' })
+      .expect(401);
+  });
+
+  it('password reset: single-use mailed link, signs out everywhere, generic answers', async () => {
+    const login = await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: 'Signup-pass-123' })
+      .expect(200);
+    const oldAuth = { Authorization: `Bearer ${login.body.token}` };
+    await http
+      .post('/auth/forgot-password')
+      .send({ email: 'ghost@example.com' })
+      .expect(202, { status: 'sent' });
+    await http
+      .post('/auth/forgot-password')
+      .send({ email: 'new@example.com' })
+      .expect(202, { status: 'sent' });
+    let mail: (typeof mails)[number] | undefined;
+    for (let i = 0; i < 50 && !mail; i++) {
+      mail = mails.find(
+        (m) => m.to.includes('new@example.com') && m.subject.includes('Reset'),
+      );
+      if (!mail) await new Promise((r) => setTimeout(r, 20));
+    }
+    const token = /reset-password\?token=([\w-]+)/.exec(mail!.text)![1];
+    await http
+      .post('/auth/reset-password')
+      .send({ token, password: 'weak' })
+      .expect(400);
+    await http
+      .post('/auth/reset-password')
+      .send({ token: 'x'.repeat(43), password: 'Brand-new-pass-456' })
+      .expect(400);
+    await http
+      .post('/auth/reset-password')
+      .send({ token, password: 'Brand-new-pass-456' })
+      .expect(204);
+    // single use
+    await http
+      .post('/auth/reset-password')
+      .send({ token, password: 'Another-pass-789' })
+      .expect(400);
+    // old session revoked, old password dead, new one works
+    await http.get('/auth/me').set(oldAuth).expect(401);
+    await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: 'Signup-pass-123' })
+      .expect(401);
+    await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: 'Brand-new-pass-456' })
+      .expect(200);
   });
 });

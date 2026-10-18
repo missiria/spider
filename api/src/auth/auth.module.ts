@@ -2,6 +2,14 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { IntegrationsModule } from '../integrations/integrations.module';
+import { User } from '../users/entities/user.entity';
+import { WorkspaceMember } from '../workspaces/entities/workspace-member.entity';
+import { Workspace } from '../workspaces/entities/workspace.entity';
+import { PasswordReset } from './entities/password-reset.entity';
+import { SignupService } from './signup.service';
+import { SignupsController } from './signups.controller';
 import { UsersModule } from '../users/users.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { AuthController } from './auth.controller';
@@ -13,6 +21,8 @@ import { JwtStrategy } from './jwt.strategy';
     ConfigModule,
     PassportModule,
     UsersModule,
+    IntegrationsModule,
+    TypeOrmModule.forFeature([User, PasswordReset, Workspace, WorkspaceMember]),
     WorkspacesModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -25,8 +35,8 @@ import { JwtStrategy } from './jwt.strategy';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy],
-  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy, SignupService],
+  controllers: [AuthController, SignupsController],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

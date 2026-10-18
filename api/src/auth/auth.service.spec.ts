@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/require-await */
-import { HttpException, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import {
   ACCOUNT_SOFT_LIMIT,
@@ -10,15 +14,21 @@ import {
 } from './auth.service';
 
 const hash = bcrypt.hashSync('right-password', 4);
+const approval: Record<string, string> = {
+  'known@example.com': 'approved',
+  'pending@example.com': 'pending',
+  'rejected@example.com': 'rejected',
+};
 const users = {
   findByEmail: async (email: string) =>
-    email === 'known@example.com'
+    approval[email]
       ? {
           id: 1,
           email,
           name: 'K',
           role: 'admin',
           is_active: true,
+          approval_status: approval[email],
           token_version: 3,
           password_hash: hash,
         }
@@ -44,6 +54,37 @@ async function fail(svc: AuthService, email: string, ip: string) {
     UnauthorizedException,
   );
 }
+
+describe('AuthService signup approval', () => {
+  it('pending: right password → 403 awaiting approval; wrong password → plain 401', async () => {
+    const { svc } = service();
+    await fail(svc, 'pending@example.com', '1.1.1.1');
+    await expect(
+      svc.login('pending@example.com', 'right-password', '1.1.1.1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejected: indistinguishable from bad credentials', async () => {
+    const { svc } = service();
+    await fail(svc, 'rejected@example.com', '1.1.1.1');
+    await expect(
+      svc.login('rejected@example.com', 'right-password', '1.1.1.1'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('clearFailures lifts the lock of that account only', async () => {
+    const { svc } = service();
+    for (let i = 0; i < FAILURE_LIMIT; i += 1)
+      await fail(svc, 'known@example.com', '1.1.1.1');
+    svc.clearFailures('Known@Example.com');
+    const ok = await svc.login(
+      'known@example.com',
+      'right-password',
+      '1.1.1.1',
+    );
+    expect(ok.user.id).toBe(1);
+  });
+});
 
 describe('AuthService brute-force protection', () => {
   it('locks an (account, ip) pair after the limit, other IPs still work', async () => {
