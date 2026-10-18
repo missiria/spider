@@ -6,6 +6,7 @@ import { SESSION_COOKIE } from "@/lib/session";
 const PUBLIC_PATHS = [
   "/login",
   "/register",
+  "/verify-email",
   "/forgot-password",
   "/reset-password",
 ];
@@ -22,8 +23,8 @@ export function middleware(req: NextRequest) {
     if (pathname !== "/") url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
-  // reset links stay reachable while signed in (the reset signs every session out anyway)
-  if (token && isPublic && !pathname.startsWith("/reset-password")) {
+  // emailed links stay reachable while signed in (the reset signs every session out anyway)
+  if (token && isPublic && !/^\/(reset-password|verify-email)/.test(pathname)) {
     return NextResponse.redirect(new URL("/", req.url));
   }
   return NextResponse.next();

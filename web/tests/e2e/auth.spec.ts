@@ -22,6 +22,27 @@ test.describe("auth pages", () => {
     );
   });
 
+  test("?next never leaves the site", async ({ page }) => {
+    for (const next of [
+      "/\\evil.example",
+      "//evil.example",
+      "https://evil.example/x",
+    ]) {
+      await page.goto(`/login?next=${encodeURIComponent(next)}`, {
+        waitUntil: "networkidle",
+      });
+      await page
+        .getByLabel("Email")
+        .fill(process.env.E2E_EMAIL ?? "admin@missiria.dev");
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill(process.env.E2E_PASSWORD ?? "admin12345");
+      await page.getByRole("button", { name: "Sign in" }).click();
+      await expect(page).toHaveURL("http://127.0.0.1:3010/");
+      await page.context().clearCookies();
+    }
+  });
+
   test("tabs switch between sign in and create account, keeping ?next", async ({
     page,
   }) => {
@@ -37,7 +58,7 @@ test.describe("auth pages", () => {
     ).toBeVisible();
   });
 
-  test("register ends on the pending confirmation; that account cannot sign in yet", async ({
+  test("register asks to confirm the email; that account cannot sign in yet", async ({
     page,
   }) => {
     const email = `pw-${Date.now()}@example.com`;
@@ -54,7 +75,7 @@ test.describe("auth pages", () => {
       .fill("Playwright-pass-1");
     await page.getByRole("button", { name: "Request access" }).click();
     await expect(
-      page.getByRole("heading", { name: "Request received" }),
+      page.getByRole("heading", { name: "Confirm your email" }),
     ).toBeVisible();
 
     await page.goto("/login");
@@ -64,7 +85,7 @@ test.describe("auth pages", () => {
       .fill("Playwright-pass-1");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(
-      page.getByRole("status").filter({ hasText: "awaiting approval" }),
+      page.getByRole("status").filter({ hasText: "Confirm your email first" }),
     ).toBeVisible();
   });
 
@@ -80,6 +101,12 @@ test.describe("auth pages", () => {
     await page.getByRole("button", { name: "Send reset link" }).click();
     await expect(
       page.getByRole("heading", { name: "Check your inbox" }),
+    ).toBeVisible();
+    await page.goto("/verify-email?token=not-a-real-token-but-long-enough", {
+      waitUntil: "networkidle",
+    });
+    await expect(
+      page.getByRole("heading", { name: "We couldn't confirm this email" }),
     ).toBeVisible();
     await page.goto("/reset-password");
     await expect(

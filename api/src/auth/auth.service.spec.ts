@@ -18,6 +18,7 @@ const approval: Record<string, string> = {
   'known@example.com': 'approved',
   'pending@example.com': 'pending',
   'rejected@example.com': 'rejected',
+  'unverified@example.com': 'unverified',
 };
 const users = {
   findByEmail: async (email: string) =>
@@ -62,6 +63,15 @@ describe('AuthService signup approval', () => {
     await expect(
       svc.login('pending@example.com', 'right-password', '1.1.1.1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('unverified: right password → 403 asking to confirm the email', async () => {
+    const { svc } = service();
+    const err = await svc
+      .login('unverified@example.com', 'right-password', '1.1.1.1')
+      .catch((e: HttpException) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as HttpException).message).toMatch(/Confirm your email/);
   });
 
   it('rejected: indistinguishable from bad credentials', async () => {

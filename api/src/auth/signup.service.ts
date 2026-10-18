@@ -18,21 +18,25 @@ import {
   DEFAULT_WORKSPACE_SLUG,
   WorkspacesService,
 } from '../workspaces/workspaces.service';
-import { PasswordReset } from './entities/password-reset.entity';
+import { PasswordReset, TokenPurpose } from './entities/password-reset.entity';
 
 export const RESET_TTL_MS = 30 * 60_000;
-/** reset mails per account per hour; further requests are silently dropped */
-export const RESET_PER_HOUR = 3;
+export const VERIFY_TTL_MS = 24 * 60 * 60_000;
+/** mails of one kind (reset or confirmation) per account per hour; more are silently dropped */
+export const MAILS_PER_HOUR = 3;
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 
 /**
  * Self-service accounts (MISS-0116).
  *
- * Signups land `pending`: Spider reads Search Console through one shared service account, so an
- * unknown account must never get a workspace (and the ability to add properties) on its own.
- * An operator — an admin of the default workspace — approves, which creates the user's own
- * workspace with them as its admin.
+ * Signups land `unverified`: the emailed confirmation link proves the address before an operator
+ * ever sees the request (otherwise anyone could pre-claim someone else's email with their own
+ * password and have it approved). Re-registering an unverified address replaces that record, so
+ * the real owner always wins. Confirmed signups are `pending`: Spider reads Search Console
+ * through one shared service account, so an unknown account must never get a workspace (and
+ * the ability to add properties) on its own. An operator — an admin of the default workspace —
+ * approves, which creates the user's own workspace with them as its admin.
  *
  * Register and forgot-password answer the same way whether or not the email exists, and do
  * the same bcrypt work, so neither can be used to enumerate accounts. Mails are sent in the
@@ -61,7 +65,7 @@ export class SignupService {
     );
   }
 
-  // ---- register ----------------------------------------------------------
+  // ---- register --------------------------------------------------------
 
   async register(input: {
     name: string;
@@ -72,23 +76,67 @@ export class SignupService {
     const email = input.email.trim().toLowerCase();
     const hash = await bcrypt.hash(input.password, 10);
     const existing = await this.users.findOne({ where: { email } });
-    if (existing) {
+    if (existing && existing.approval_status !== 'unverified') {
       // same answer as a fresh signup; the owner of the address can use "forgot password"
       this.logger.log(`register: existing email user=${existing.id}`);
       return;
     }
-    const user = await this.users.save(
-      this.users.create({
-        email,
-        name: input.name.trim(),
-        company: input.company?.trim() || null,
-        password_hash: hash,
-        role: 'member',
-        is_active: true,
-        approval_status: 'pending',
+    let user: User;
+    if (existing) {
+      // nobody proved this address yet: the newest request replaces the old one, and links
+      // sent for the old one stop working (token_version bump)
+      existing.name = input.name.trim();
+      existing.company = input.company?.trim() || null;
+      existing.password_hash = hash;
+      existing.token_version += 1;
+      user = await this.users.save(existing);
+      await this.retireTokens(user.id);
+    } else {
+      user = await this.users.save(
+        this.users.create({
+          email,
+          name: input.name.trim(),
+          company: input.company?.trim() || null,
+          password_hash: hash,
+          role: 'member',
+          is_active: true,
+          approval_status: 'unverified',
+        }),
+      );
+    }
+    this.logger.log(`register: unverified user=${user.id}`);
+    const token = await this.issueToken(user, 'verify', VERIFY_TTL_MS);
+    if (!token) return;
+    this.background(
+      this.mailer.send({
+        to: [user.email],
+        subject: 'Confirm your email for Spider',
+        text: [
+          `Hi ${user.name},`,
+          '',
+          'Confirm this address to finish your Spider account request (link valid 24 hours):',
+          `${this.publicUrl}/verify-email?token=${token}`,
+          '',
+          'An admin reviews every new account after that; we will email you once yours is approved.',
+          'If you did not ask for a Spider account, ignore this email.',
+        ].join('\n'),
       }),
     );
-    this.logger.log(`register: pending user=${user.id}`);
+  }
+
+  /** Confirms the signup address: the request becomes visible to operators. */
+  async verifyEmail(token: string): Promise<void> {
+    const found = await this.consumable(token, 'verify');
+    if (!found || found.user.approval_status !== 'unverified') {
+      throw new BadRequestException(
+        'This confirmation link is invalid or has expired. Sign up again to get a new one.',
+      );
+    }
+    const { user } = found;
+    user.approval_status = 'pending';
+    await this.users.save(user);
+    await this.retireTokens(user.id, 'verify');
+    this.logger.log(`verify: pending user=${user.id}`);
     this.background(this.notifyOperators(user));
   }
 
@@ -158,26 +206,8 @@ export class SignupService {
     if (!user || !user.is_active || user.approval_status !== 'approved') {
       return;
     }
-    const recent = await this.resets.count({
-      where: {
-        user_id: user.id,
-        created_at: MoreThan(new Date(Date.now() - 60 * 60_000)),
-      },
-    });
-    if (recent >= RESET_PER_HOUR) {
-      this.logger.warn(`forgot: hourly cap reached user=${user.id}`);
-      return;
-    }
-    const token = randomBytes(32).toString('base64url');
-    await this.resets.save(
-      this.resets.create({
-        user_id: user.id,
-        token_hash: sha256(token),
-        expires_at: new Date(Date.now() + RESET_TTL_MS),
-        used_at: null,
-      }),
-    );
-    const link = `${this.publicUrl}/reset-password?token=${token}`;
+    const token = await this.issueToken(user, 'reset', RESET_TTL_MS);
+    if (!token) return;
     this.background(
       this.mailer.send({
         to: [user.email],
@@ -186,7 +216,7 @@ export class SignupService {
           `Hi ${user.name},`,
           '',
           'Someone asked to reset the password of your Spider account. Open this link to choose a new one (valid 30 minutes, single use):',
-          link,
+          `${this.publicUrl}/reset-password?token=${token}`,
           '',
           'If it was not you, ignore this email: your password stays the same.',
         ].join('\n'),
@@ -196,37 +226,92 @@ export class SignupService {
 
   /** Returns the account email so the caller can clear its login lock. */
   async resetPassword(token: string, password: string): Promise<string> {
-    const row = await this.resets.findOne({
-      where: {
-        token_hash: sha256(token),
-        used_at: IsNull(),
-        expires_at: MoreThan(new Date()),
-      },
-    });
-    const user = row
-      ? await this.users.findOne({ where: { id: row.user_id } })
-      : null;
-    if (
-      !row ||
-      !user ||
-      !user.is_active ||
-      user.approval_status !== 'approved'
-    ) {
+    const found = await this.consumable(token, 'reset');
+    if (!found || found.user.approval_status !== 'approved') {
       throw new BadRequestException(
         'This reset link is invalid or has expired. Ask for a new one.',
       );
     }
+    const { user } = found;
     user.password_hash = await bcrypt.hash(password, 10);
     // signs the account out everywhere: a reset usually means the old password leaked
     user.token_version += 1;
     await this.users.save(user);
     // every outstanding link of this account dies with the one just used
-    await this.resets.update(
-      { user_id: user.id, used_at: IsNull() },
-      { used_at: new Date() },
-    );
+    await this.retireTokens(user.id);
     this.logger.log(`reset: password changed user=${user.id}`);
     return user.email;
+  }
+
+  // ---- tokens ------------------------------------------------------------
+
+  /** New single-use link for `user`, or null past the hourly cap. Returns the raw token. */
+  private async issueToken(
+    user: User,
+    purpose: TokenPurpose,
+    ttlMs: number,
+  ): Promise<string | null> {
+    const recent = await this.resets.count({
+      where: {
+        user_id: user.id,
+        purpose,
+        created_at: MoreThan(new Date(Date.now() - 60 * 60_000)),
+      },
+    });
+    if (recent >= MAILS_PER_HOUR) {
+      this.logger.warn(`${purpose}: hourly cap reached user=${user.id}`);
+      return null;
+    }
+    const token = randomBytes(32).toString('base64url');
+    await this.resets.save(
+      this.resets.create({
+        user_id: user.id,
+        purpose,
+        email: user.email,
+        token_version: user.token_version,
+        token_hash: sha256(token),
+        expires_at: new Date(Date.now() + ttlMs),
+        used_at: null,
+      }),
+    );
+    return token;
+  }
+
+  /**
+   * The live row for `token` and its user, or null. A link only works for the address and
+   * token_version it was issued for: an email change, a password reset, a session revocation
+   * or a deactivation in between kills it.
+   */
+  private async consumable(
+    token: string,
+    purpose: TokenPurpose,
+  ): Promise<{ row: PasswordReset; user: User } | null> {
+    const row = await this.resets.findOne({
+      where: {
+        token_hash: sha256(token),
+        purpose,
+        used_at: IsNull(),
+        expires_at: MoreThan(new Date()),
+      },
+    });
+    if (!row) return null;
+    const user = await this.users.findOne({ where: { id: row.user_id } });
+    if (
+      !user ||
+      !user.is_active ||
+      user.email !== row.email ||
+      user.token_version !== row.token_version
+    ) {
+      return null;
+    }
+    return { row, user };
+  }
+
+  private async retireTokens(userId: number, purpose?: TokenPurpose) {
+    await this.resets.update(
+      { user_id: userId, used_at: IsNull(), ...(purpose ? { purpose } : {}) },
+      { used_at: new Date() },
+    );
   }
 
   // ---- helpers -----------------------------------------------------------

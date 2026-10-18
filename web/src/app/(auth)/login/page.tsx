@@ -8,9 +8,21 @@ import { FormNotice, SubmitButton, TextField } from "@/components/auth/fields";
 import { PasswordField } from "@/components/auth/PasswordField";
 import { startSession } from "@/lib/api";
 
-/** Only same-site paths: `?next=https://evil.example` must not become an open redirect. */
+/**
+ * Only same-origin targets: `?next=https://evil.example`, `//evil.example` or `/\\evil.example`
+ * (browsers read the backslash as a slash) must not become an open redirect. Resolved the way
+ * the browser will resolve it, then accepted only if the origin is still ours.
+ */
 function safeNext(raw: string | null): string {
-  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+  if (!raw || /[\\\u0000-\u001f]/.test(raw)) return "/";
+  try {
+    const url = new URL(raw, window.location.origin);
+    return url.origin === window.location.origin
+      ? `${url.pathname}${url.search}${url.hash}`
+      : "/";
+  } catch {
+    return "/";
+  }
 }
 
 function LoginForm() {
@@ -35,7 +47,9 @@ function LoginForm() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setNotice({
-        tone: /awaiting approval/i.test(message) ? "pending" : "error",
+        tone: /awaiting approval|confirm your email/i.test(message)
+          ? "pending"
+          : "error",
         message,
       });
       setNonce((n) => n + 1);

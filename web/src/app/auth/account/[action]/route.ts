@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { API_URL, clientIpHeaders, rejectCrossSite } from "@/lib/authProxy";
 
-const ACTIONS = new Set(["register", "forgot-password", "reset-password"]);
+const ACTIONS = new Set([
+  "register",
+  "verify-email",
+  "forgot-password",
+  "reset-password",
+]);
 
 /**
  * Public account actions (sign up, forgot / reset password). Proxied here rather than through

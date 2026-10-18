@@ -8,8 +8,11 @@ import {
 
 export type UserRole = 'admin' | 'member';
 
-/** self-service signups start `pending` and cannot sign in until an operator approves */
-export type ApprovalStatus = 'approved' | 'pending' | 'rejected';
+/**
+ * Self-service signups start `unverified` (email not confirmed, invisible to operators), become
+ * `pending` once the emailed link is opened, and can sign in only when an operator approves.
+ */
+export type ApprovalStatus = 'approved' | 'unverified' | 'pending' | 'rejected';
 
 @Entity('users')
 export class User {
@@ -33,7 +36,7 @@ export class User {
 
   @Column({
     type: 'enum',
-    enum: ['approved', 'pending', 'rejected'],
+    enum: ['approved', 'unverified', 'pending', 'rejected'],
     default: 'approved',
   })
   approval_status: ApprovalStatus;

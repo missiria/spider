@@ -54,6 +54,13 @@ class ForgotPasswordDto {
   email: string;
 }
 
+class VerifyEmailDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(128)
+  token: string;
+}
+
 class ResetPasswordDto {
   @IsString()
   @MinLength(20)
@@ -105,6 +112,14 @@ export class AuthController {
     this.logger.log(`register attempt ip=${ip}`);
     await this.signup.register(body);
     return { status: 'pending' };
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('verify-email')
+  @HttpCode(204)
+  async verifyEmail(@Body() body: VerifyEmailDto) {
+    await this.signup.verifyEmail(body.token);
   }
 
   @Public()

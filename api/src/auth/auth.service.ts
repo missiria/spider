@@ -77,6 +77,11 @@ export class AuthService {
     }
     this.failures.delete(key);
     // only said after the right password: a guess cannot learn the account is pending
+    if (user.approval_status === 'unverified') {
+      throw new ForbiddenException(
+        'Confirm your email first: open the link we sent you when you signed up.',
+      );
+    }
     if (user.approval_status !== 'approved') {
       throw new ForbiddenException(
         'Your account is awaiting approval. We will email you as soon as it is ready.',

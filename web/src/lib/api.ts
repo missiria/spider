@@ -48,7 +48,7 @@ export async function startSession(
 
 /** Public account actions, proxied by /auth/account/* (see that route). */
 async function accountAction(
-  action: "register" | "forgot-password" | "reset-password",
+  action: "register" | "verify-email" | "forgot-password" | "reset-password",
   body: Record<string, string>,
 ): Promise<void> {
   const res = await fetch(`/auth/account/${action}`, {
@@ -76,6 +76,8 @@ export const registerAccount = (body: {
   password: string;
   company?: string;
 }) => accountAction("register", body);
+export const verifyEmail = (token: string) =>
+  accountAction("verify-email", { token });
 export const requestPasswordReset = (email: string) =>
   accountAction("forgot-password", { email });
 export const resetPassword = (token: string, password: string) =>
@@ -88,6 +90,7 @@ export async function endSession(): Promise<void> {
 export const AUTH_PAGES = [
   "/login",
   "/register",
+  "/verify-email",
   "/forgot-password",
   "/reset-password",
 ];

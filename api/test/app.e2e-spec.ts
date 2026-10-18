@@ -1182,15 +1182,56 @@ describe('Spider API (e2e)', () => {
       password: 'Signup-pass-123',
       company: 'Acme SEO',
     };
+    // an attacker pre-claims the address with their own password...
+    await http
+      .post('/auth/register')
+      .send({ ...body, name: 'Attacker', password: 'Attacker-pass-999' })
+      .expect(202);
+    const attackerMail = await waitMail(
+      (m) => m.to.includes('new@example.com') && m.subject.includes('Confirm'),
+    );
+    const attackerToken = /verify-email\?token=([\w-]+)/.exec(
+      attackerMail.text,
+    )![1];
+    // ...unconfirmed, it is invisible to operators and cannot sign in
+    const hidden = await http.get('/signups').set(auth()).expect(200);
+    expect(JSON.stringify(hidden.body)).not.toContain('new@example.com');
+    const unverified = await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: 'Attacker-pass-999' })
+      .expect(403);
+    expect(unverified.body.message).toMatch(/Confirm your email/);
+    // the real owner signs up again: replaces the record, the attacker's link dies
+    mails.length = 0;
     const fresh = await http.post('/auth/register').send(body).expect(202);
-    // an existing address gets the very same answer
+    // an existing (confirmed) address gets the very same answer
     const dup = await http
       .post('/auth/register')
       .send({ ...body, email: 'e2e-admin@example.com' })
       .expect(202);
     expect(dup.body).toEqual(fresh.body);
+    await http
+      .post('/auth/verify-email')
+      .send({ token: attackerToken })
+      .expect(400);
+    const confirm = await waitMail(
+      (m) => m.to.includes('new@example.com') && m.subject.includes('Confirm'),
+    );
+    const verifyToken = /verify-email\?token=([\w-]+)/.exec(confirm.text)![1];
+    await http
+      .post('/auth/verify-email')
+      .send({ token: verifyToken })
+      .expect(204);
+    await http
+      .post('/auth/verify-email')
+      .send({ token: verifyToken })
+      .expect(400);
     const notice = await waitMail((m) => m.subject.includes('New Person'));
     expect(notice.to).toContain('e2e-admin@example.com');
+    await http
+      .post('/auth/login')
+      .send({ email: 'new@example.com', password: 'Attacker-pass-999' })
+      .expect(401);
 
     // pending: right password → 403 with a clear message, wrong password → 401
     await http
@@ -1244,6 +1285,13 @@ describe('Spider API (e2e)', () => {
         password: 'Signup-pass-123',
       })
       .expect(202);
+    const nopeMail = await waitMail(
+      (m) => m.to.includes('nope@example.com') && m.subject.includes('Confirm'),
+    );
+    await http
+      .post('/auth/verify-email')
+      .send({ token: /verify-email\?token=([\w-]+)/.exec(nopeMail.text)![1] })
+      .expect(204);
     const again = await http.get('/signups').set(auth()).expect(200);
     const nope = again.body.items.find(
       (u: { email: string }) => u.email === 'nope@example.com',
@@ -1255,28 +1303,69 @@ describe('Spider API (e2e)', () => {
       .expect(401);
   });
 
-  it('password reset: single-use mailed link, signs out everywhere, generic answers', async () => {
-    const login = await http
-      .post('/auth/login')
-      .send({ email: 'new@example.com', password: 'Signup-pass-123' })
-      .expect(200);
-    const oldAuth = { Authorization: `Bearer ${login.body.token}` };
+  it('password reset: single-use mailed link bound to email + sessions, signs out everywhere', async () => {
+    const resetLink = async (): Promise<string> => {
+      mails.length = 0;
+      await http
+        .post('/auth/forgot-password')
+        .send({ email: 'new@example.com' })
+        .expect(202, { status: 'sent' });
+      for (let i = 0; i < 50; i++) {
+        const m = mails.find(
+          (x) =>
+            x.to.includes('new@example.com') && x.subject.includes('Reset'),
+        );
+        if (m) return /reset-password\?token=([\w-]+)/.exec(m.text)![1];
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      throw new Error('reset mail not sent');
+    };
+    const signIn = async (password: string, status = 200) =>
+      (
+        await http
+          .post('/auth/login')
+          .send({ email: 'new@example.com', password })
+          .expect(status)
+      ).body as { token: string };
+    const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
+
     await http
       .post('/auth/forgot-password')
       .send({ email: 'ghost@example.com' })
       .expect(202, { status: 'sent' });
+
+    // bound to the address: an email change in between kills the link
+    const session = await signIn('Signup-pass-123');
+    const first = await resetLink();
     await http
-      .post('/auth/forgot-password')
+      .patch('/auth/me')
+      .set(bearer(session.token))
+      .send({ email: 'renamed@example.com' })
+      .expect(200);
+    await http
+      .post('/auth/reset-password')
+      .send({ token: first, password: 'Brand-new-pass-456' })
+      .expect(400);
+    await http
+      .patch('/auth/me')
+      .set(bearer(session.token))
       .send({ email: 'new@example.com' })
-      .expect(202, { status: 'sent' });
-    let mail: (typeof mails)[number] | undefined;
-    for (let i = 0; i < 50 && !mail; i++) {
-      mail = mails.find(
-        (m) => m.to.includes('new@example.com') && m.subject.includes('Reset'),
-      );
-      if (!mail) await new Promise((r) => setTimeout(r, 20));
-    }
-    const token = /reset-password\?token=([\w-]+)/.exec(mail!.text)![1];
+      .expect(200);
+
+    // bound to the sessions: a revocation in between kills the link
+    const second = await resetLink();
+    await http
+      .post('/auth/revoke-sessions')
+      .set(bearer(session.token))
+      .expect(204);
+    await http
+      .post('/auth/reset-password')
+      .send({ token: second, password: 'Brand-new-pass-456' })
+      .expect(400);
+
+    // the happy path: weak password refused, then single use, signs out everywhere
+    const live = await signIn('Signup-pass-123');
+    const token = await resetLink();
     await http
       .post('/auth/reset-password')
       .send({ token, password: 'weak' })
@@ -1289,20 +1378,12 @@ describe('Spider API (e2e)', () => {
       .post('/auth/reset-password')
       .send({ token, password: 'Brand-new-pass-456' })
       .expect(204);
-    // single use
     await http
       .post('/auth/reset-password')
       .send({ token, password: 'Another-pass-789' })
       .expect(400);
-    // old session revoked, old password dead, new one works
-    await http.get('/auth/me').set(oldAuth).expect(401);
-    await http
-      .post('/auth/login')
-      .send({ email: 'new@example.com', password: 'Signup-pass-123' })
-      .expect(401);
-    await http
-      .post('/auth/login')
-      .send({ email: 'new@example.com', password: 'Brand-new-pass-456' })
-      .expect(200);
+    await http.get('/auth/me').set(bearer(live.token)).expect(401);
+    await signIn('Signup-pass-123', 401);
+    await signIn('Brand-new-pass-456');
   });
 });

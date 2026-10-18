@@ -59,7 +59,7 @@ function RegisterForm() {
     return (
       <DoneState
         icon={<MailCheck className="h-5 w-5" />}
-        title="Request received"
+        title="Confirm your email"
         action={
           <Link
             href="/login"
@@ -69,10 +69,10 @@ function RegisterForm() {
           </Link>
         }
       >
-        An admin reviews every new account. We will email{" "}
-        <span className="font-medium text-foreground">{form.email}</span> as
-        soon as yours is approved, then you can sign in with the password you
-        just chose.
+        We sent a link to{" "}
+        <span className="font-medium text-foreground">{form.email}</span>. Open
+        it within 24 hours to confirm the address. An admin then reviews your
+        request, and we email you once you can sign in.
       </DoneState>
     );
   }
