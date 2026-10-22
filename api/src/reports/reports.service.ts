@@ -27,7 +27,8 @@ import {
   ReportConfig,
   ReportSection,
 } from './entities/report.entity';
-import { Brand, buildReportDocument } from './report-pdf';
+import { buildReportDocument } from './report-pdf';
+import { parseBrand } from '../workspaces/brand';
 import { nextRunAt, parseRecipients, periodKey, toCsv } from './report.util';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -363,6 +364,7 @@ export class ReportsService {
     if (section === 'overview') {
       if (!data.overview)
         throw new BadRequestException('Section not in this report');
+      const noPrev = data.overview.comparison_available === false;
       const rows: (string | number | null)[][] = data.overview.properties
         ? data.overview.properties.map((p) => [
             p.display_name,
@@ -376,14 +378,15 @@ export class ReportsService {
             p.current.position,
           ])
         : [
+            // no stored comparison rows → previous and deltas are blank, not zeros
             [
               data.property?.display_name ?? 'property',
               data.overview.current.clicks,
-              data.overview.previous.clicks,
-              data.overview.delta.clicks,
+              noPrev ? null : data.overview.previous.clicks,
+              noPrev ? null : data.overview.delta.clicks,
               data.overview.current.impressions,
-              data.overview.previous.impressions,
-              data.overview.delta.impressions,
+              noPrev ? null : data.overview.previous.impressions,
+              noPrev ? null : data.overview.delta.impressions,
               data.overview.current.ctr,
               data.overview.current.position,
             ],
@@ -449,13 +452,12 @@ export class ReportsService {
   }
 
   async pdf(data: ReportData): Promise<{ filename: string; buffer: Buffer }> {
+    // the current workspace's own profile and logo only (tenant scope from the request / runAs)
     const ws = await this.workspaces.current();
-    const brand: Brand = safeParse(
-      (ws as { brand?: string | null }).brand ?? '{}',
-      {},
-    );
+    const brand = parseBrand(ws.brand);
+    const logo = await this.workspaces.logo();
     const doc = this.printer.createPdfKitDocument(
-      buildReportDocument(data, brand),
+      buildReportDocument(data, brand, logo),
     );
     const chunks: Buffer[] = [];
     const buffer = await new Promise<Buffer>((resolve, reject) => {

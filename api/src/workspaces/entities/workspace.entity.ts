@@ -18,9 +18,17 @@ export class Workspace {
   @Column({ type: 'varchar', length: 120 })
   name: string;
 
-  /** JSON { name, accent_color, footer } used on PDF reports; null = defaults */
+  /** JSON Brand (workspaces/brand.ts) used on PDF reports; null = defaults */
   @Column({ type: 'text', nullable: true })
   brand: string | null;
+
+  /**
+   * JSON StoredLogo { mime, width, height, bytes, data(base64) } — the approved report logo,
+   * kept in the database (no file path to leak). Not selected by default: read it with
+   * WorkspacesService.logo().
+   */
+  @Column({ type: 'mediumtext', nullable: true, select: false })
+  brand_logo: string | null;
 
   @CreateDateColumn({ type: 'timestamp' })
   created_at: Date;

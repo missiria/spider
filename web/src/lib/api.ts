@@ -6,6 +6,8 @@ import type {
   AlertEventRow,
   AlertRuleRow,
   Brand,
+  LogoMeta,
+  ReportData,
   KeyFilters,
   Opportunity,
   ReportDelivery,
@@ -412,6 +414,8 @@ export const updateReport = (
   body: { name?: string; config?: Record<string, unknown> },
 ) => api.patch<ReportTemplate>(`/reports/${id}`, body).then((r) => r.data);
 export const deleteReport = (id: number) => api.delete(`/reports/${id}`);
+export const getReportData = (id: number) =>
+  api.get<ReportData>(`/reports/${id}/data`).then((r) => r.data);
 export const reportExportUrl = (
   id: number,
   kind: "csv" | "pdf",
@@ -515,6 +519,16 @@ export const evaluateAlerts = () =>
     .then((r) => r.data);
 export const putBrand = (body: Brand) =>
   api.put<Brand>("/settings/brand", body).then((r) => r.data);
+/** Raw image body; the API checks the type from the bytes. */
+export const putBrandLogo = (file: Blob) =>
+  api
+    .put<LogoMeta>("/settings/brand/logo", file, {
+      headers: { "Content-Type": file.type },
+    })
+    .then((r) => r.data);
+export const deleteBrandLogo = () => api.delete("/settings/brand/logo");
+export const brandLogoUrl = (version: string | number) =>
+  `/api/settings/brand/logo?v=${encodeURIComponent(String(version))}`;
 export const processWebhooks = () =>
   api
     .post<{ attempted: number; ok: number; failed: number }>(

@@ -9,6 +9,13 @@ import { Repository } from 'typeorm';
 import { WorkspaceMember } from './entities/workspace-member.entity';
 import { Workspace } from './entities/workspace.entity';
 import { currentWorkspaceId, requestContext } from './request-context';
+import {
+  Brand,
+  LogoMeta,
+  StoredLogo,
+  inspectLogo,
+  sanitizeBrand,
+} from './brand';
 
 export const DEFAULT_WORKSPACE_SLUG = 'missiria';
 
@@ -114,19 +121,49 @@ export class WorkspacesService {
 
   // ---- brand -------------------------------------------------------------
 
-  async updateBrand(input: {
-    name?: string;
-    accent_color?: string;
-    footer?: string;
-  }): Promise<Record<string, string>> {
+  /** Replaces the brand profile of the current workspace (MISS-0094 fields + entity profile). */
+  async updateBrand(input: Record<string, unknown>): Promise<Brand> {
     const ws = await this.current();
-    const brand: Record<string, string> = {};
-    if (input.name?.trim()) brand.name = input.name.trim().slice(0, 80);
-    if (input.accent_color && /^#[0-9a-fA-F]{6}$/.test(input.accent_color))
-      brand.accent_color = input.accent_color;
-    if (input.footer?.trim()) brand.footer = input.footer.trim().slice(0, 160);
+    const brand = sanitizeBrand(input);
     ws.brand = Object.keys(brand).length ? JSON.stringify(brand) : null;
     await this.repo.save(ws);
     return brand;
+  }
+
+  /** Stored logo of the current workspace (bytes included), or null. */
+  async logo(): Promise<StoredLogo | null> {
+    const row = await this.repo
+      .createQueryBuilder('w')
+      .select('w.id', 'id')
+      .addSelect('w.brand_logo', 'brand_logo')
+      .where('w.id = :id', { id: this.currentId() })
+      .getRawOne<{ id: number; brand_logo: string | null }>();
+    if (!row?.brand_logo) return null;
+    try {
+      return JSON.parse(row.brand_logo) as StoredLogo;
+    } catch {
+      return null;
+    }
+  }
+
+  async logoMeta(): Promise<LogoMeta | null> {
+    const l = await this.logo();
+    return l
+      ? { mime: l.mime, width: l.width, height: l.height, bytes: l.bytes }
+      : null;
+  }
+
+  async setLogo(buf: Buffer): Promise<LogoMeta> {
+    const meta = inspectLogo(buf);
+    const stored: StoredLogo = { ...meta, data: buf.toString('base64') };
+    await this.repo.update(
+      { id: this.currentId() },
+      { brand_logo: JSON.stringify(stored) },
+    );
+    return meta;
+  }
+
+  async removeLogo(): Promise<void> {
+    await this.repo.update({ id: this.currentId() }, { brand_logo: null });
   }
 }

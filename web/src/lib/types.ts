@@ -172,6 +172,9 @@ export interface PropertyDetail {
 export interface Settings {
   workspace: { id: number; slug: string; name: string };
   brand: Brand;
+  logo: LogoMeta | null;
+  /** plain-language list of what is not configured and the fallback used instead */
+  branding_missing: string[];
   serviceAccountEmail: string;
   mock: boolean;
   schedule: { accessCheck: string; incrementalSync: string };
@@ -421,4 +424,73 @@ export interface Brand {
   name?: string;
   accent_color?: string;
   footer?: string;
+  legal_name?: string;
+  trading_name?: string;
+  company_number?: string;
+  registered_address?: string;
+  contact_email?: string;
+  website?: string;
+}
+
+export interface LogoMeta {
+  mime: "image/png" | "image/jpeg";
+  width: number;
+  height: number;
+  bytes: number;
+}
+
+/** GET /reports/:id/data (api/src/reports/reports.service.ts ReportData). */
+export interface ReportTotals {
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+export interface ReportData {
+  report_id: number;
+  title: string;
+  scope: "fleet" | "property";
+  property: { id: number; display_name: string; site_url: string } | null;
+  generated_at: string;
+  data_through: string | null;
+  period: { start: string; end: string };
+  previousPeriod: { start: string; end: string };
+  notes: string | null;
+  overview: {
+    current: ReportTotals;
+    previous: ReportTotals;
+    delta: {
+      clicks: number | null;
+      impressions: number | null;
+      ctr: number | null;
+      position: number | null;
+    };
+    comparison_available?: boolean;
+    note?: string | null;
+    properties?: {
+      id: number;
+      display_name: string;
+      current: ReportTotals;
+      previous: ReportTotals;
+      delta: { clicks: number | null; impressions: number | null };
+    }[];
+  } | null;
+  tables: {
+    section: ReportSection;
+    title: string;
+    keyLabel: string;
+    note: string | null;
+    rows: (ReportTotals & { key: string })[];
+  }[];
+  opportunities:
+    | {
+        id: number;
+        priority: string;
+        title: string;
+        property: string;
+        confidence: string;
+        rule: string;
+      }[]
+    | null;
 }

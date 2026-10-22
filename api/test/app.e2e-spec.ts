@@ -16,6 +16,7 @@ import { getStorageToken } from '@nestjs/throttler';
 import { createHmac } from 'node:crypto';
 import * as nodeHttp from 'node:http';
 import { MailerService } from '../src/integrations/mailer.service';
+import { jpegHeader, solidPng } from '../src/testing/images.helper-spec';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 process.env.DB_DATABASE = process.env.E2E_DB_DATABASE ?? 'pro_spider_app_test';
@@ -898,6 +899,184 @@ describe('Spider API (e2e)', () => {
     await http.delete(`/webhooks/${hookA.body.id}`).set(auth()).expect(204);
     await http.delete(`/reports/${reportA.body.id}`).set(auth()).expect(204);
     await http.delete(`/views/${viewA.body.id}`).set(auth()).expect(204);
+  });
+
+  it('report branding (MISS-0135): entity profile + logo, validated, previewed, printed, tenant-isolated', async () => {
+    const pdfOf = async (id: number, headers: Record<string, string>) =>
+      (
+        await http
+          .get(`/reports/${id}/export.pdf`)
+          .set(headers)
+          .buffer(true)
+          .parse((res, cb) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => cb(null, Buffer.concat(chunks)));
+          })
+          .expect(200)
+      ).body as Buffer;
+
+    // nothing configured: clean fallback, explained
+    await http.put('/settings/brand').set(auth()).send({}).expect(200);
+    await http.delete('/settings/brand/logo').set(auth()).expect(204);
+    let settings = (await http.get('/settings').set(auth()).expect(200)).body;
+    expect(settings.logo).toBeNull();
+    expect(settings.branding_missing.join(' ')).toMatch(/No logo/);
+    expect(settings.branding_missing.join(' ')).toMatch(/No legal entity name/);
+
+    // entity profile, the MISSIRIA workspace storing its own legal details
+    const saved = await http
+      .put('/settings/brand')
+      .set(auth())
+      .send({
+        name: 'MISSIRIA',
+        accent_color: '#0f766e',
+        legal_name: 'MISSIRIA LTD',
+        trading_name: 'MISSIRIA',
+        company_number: '17494304',
+        registered_address:
+          'Unit A, 82 James Carter Road\nMildenhall IP28 7DE\nUnited Kingdom',
+        contact_email: 'contact@missiria.dev',
+        website: 'www.missiria.dev',
+      })
+      .expect(200);
+    expect(saved.body.website).toBe('https://www.missiria.dev');
+    await http
+      .put('/settings/brand')
+      .set(auth())
+      .send({ contact_email: 'nope' })
+      .expect(400);
+    await http
+      .put('/settings/brand')
+      .set(auth())
+      .send({ legal_name: 'x', unknown_field: 'y' })
+      .expect(400);
+
+    // logo: type from the bytes, size and dimension limits, no path in any response
+    await http
+      .put('/settings/brand/logo')
+      .set(auth())
+      .set('Content-Type', 'image/svg+xml')
+      .send(Buffer.from('<svg/>'))
+      .expect(400);
+    await http
+      .put('/settings/brand/logo')
+      .set(auth())
+      .set('Content-Type', 'image/png')
+      .send(Buffer.from('GIF89a not a png at all'))
+      .expect(400);
+    await http
+      .put('/settings/brand/logo')
+      .set(auth())
+      .set('Content-Type', 'image/png')
+      .send(Buffer.concat([solidPng(20, 20), Buffer.alloc(300 * 1024)]))
+      .expect(400);
+    await http
+      .put('/settings/brand/logo')
+      .set(auth())
+      .set('Content-Type', 'image/jpeg')
+      .send(jpegHeader(9000, 50))
+      .expect(400);
+    const logo = await http
+      .put('/settings/brand/logo')
+      .set(auth())
+      .set('Content-Type', 'image/png')
+      .send(solidPng(240, 60))
+      .expect(200);
+    expect(logo.body).toEqual({
+      mime: 'image/png',
+      width: 240,
+      height: 60,
+      bytes: expect.any(Number),
+    });
+    // saving the profile again must not touch the stored logo (brand_logo is not selected)
+    await http
+      .put('/settings/brand')
+      .set(auth())
+      .send({ ...saved.body, footer: 'Confidential' })
+      .expect(200);
+    settings = (await http.get('/settings').set(auth()).expect(200)).body;
+    expect(settings.logo).toMatchObject({ width: 240, height: 60 });
+    expect(settings.brand.footer).toBe('Confidential');
+    expect(settings.branding_missing).toEqual([]);
+    expect(JSON.stringify(settings)).not.toMatch(/base64|\/tmp|uploads|data:/);
+    const img = await http
+      .get('/settings/brand/logo')
+      .set(auth())
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect(img.headers['content-type']).toBe('image/png');
+    expect((img.body as Buffer).equals(solidPng(240, 60))).toBe(true);
+
+    // A's PDF embeds the logo and names the entity
+    const reportA = await http
+      .post('/reports')
+      .set(auth())
+      .send({
+        name: 'Branded',
+        scope: 'property',
+        property_id: propertyId,
+        config: { period: { days: 28 }, sections: ['overview', 'pages'] },
+      })
+      .expect(201);
+    const pdfA = await pdfOf(reportA.body.id, auth());
+    expect(pdfA.toString('latin1')).toMatch(/\/Subtype \/Image/);
+    expect(pdfA.toString('latin1')).toContain('MISSIRIA');
+
+    // another tenant: none of A's profile or logo, text-only fallback in its own PDF
+    const workspaces = app.get(WorkspacesService);
+    const users = app.get(UsersService);
+    const wsC = await workspaces.create('tenant-c', 'Tenant C');
+    await users.create({
+      email: 'c-admin@example.com',
+      password: 'Tenant-c-pass-123',
+      name: 'C admin',
+      role: 'admin',
+      workspaceId: wsC.id,
+    });
+    const c = await http
+      .post('/auth/login')
+      .send({ email: 'c-admin@example.com', password: 'Tenant-c-pass-123' })
+      .expect(200);
+    const asC = { Authorization: `Bearer ${c.body.token}` };
+    const settingsC = (await http.get('/settings').set(asC).expect(200)).body;
+    expect(settingsC.brand).toEqual({});
+    expect(settingsC.logo).toBeNull();
+    await http.get('/settings/brand/logo').set(asC).expect(404);
+    const reportC = await http
+      .post('/reports')
+      .set(asC)
+      .send({
+        name: 'C fleet',
+        scope: 'fleet',
+        config: { sections: ['overview'] },
+      })
+      .expect(201);
+    const pdfC = await pdfOf(reportC.body.id, asC);
+    expect(pdfC.toString('latin1')).not.toMatch(/\/Subtype \/Image/);
+    expect(pdfC.toString('latin1')).not.toContain('MISSIRIA');
+    // C saving its own profile leaves A untouched
+    await http
+      .put('/settings/brand')
+      .set(asC)
+      .send({ name: 'Tenant C brand' })
+      .expect(200);
+    expect(
+      (await http.get('/settings').set(auth()).expect(200)).body.brand
+        .legal_name,
+    ).toBe('MISSIRIA LTD');
+
+    // removing the logo returns to the text header
+    await http.delete('/settings/brand/logo').set(auth()).expect(204);
+    await http.get('/settings/brand/logo').set(auth()).expect(404);
+    expect(
+      (await pdfOf(reportA.body.id, auth())).toString('latin1'),
+    ).not.toMatch(/\/Subtype \/Image/);
   });
 
   it('sync: truncated runs are partial and visible; complete windows reconcile; failed fetches keep data', async () => {

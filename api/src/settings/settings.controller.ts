@@ -1,5 +1,17 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Put,
+  Req,
+  Res,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { Roles } from '../auth/roles.guard';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -8,7 +20,13 @@ import { SyncRun } from '../sync/entities/sync-run.entity';
 import { GscService } from '../gsc/gsc.service';
 import { parseCoverage } from '../sync/coverage';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import {
+  MAX_LOGO_BYTES,
+  missingBranding,
+  parseBrand,
+} from '../workspaces/brand';
 
+/** Shape and length only; sanitizeBrand() normalises and validates the values. */
 class BrandDto {
   @IsOptional()
   @IsString()
@@ -16,13 +34,69 @@ class BrandDto {
   name?: string;
 
   @IsOptional()
-  @Matches(/^#[0-9a-fA-F]{6}$/)
+  @IsString()
+  @MaxLength(7)
   accent_color?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(160)
   footer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  legal_name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  trading_name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  company_number?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  registered_address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  contact_email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  website?: string;
+}
+
+/** Reads a raw request body up to `max` bytes (the global parsers only handle JSON/forms). */
+function readRaw(req: Request, max: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let failed = false;
+    req.on('data', (c: Buffer) => {
+      if (failed) return;
+      size += c.length;
+      if (size > max) {
+        failed = true;
+        reject(
+          new BadRequestException(
+            `The logo is larger than ${MAX_LOGO_BYTES / 1024} KB`,
+          ),
+        );
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => !failed && resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
 }
 
 @Controller('settings')
@@ -114,26 +188,57 @@ export class SettingsController {
     };
   }
 
-  /** Report branding (PDF header / accent / footer). Admin only. */
+  /** Report branding: display brand + legal entity profile (PDF header / footer). Admin only. */
   @Roles('admin')
   @Put('brand')
   brand(@Body() body: BrandDto) {
-    return this.workspaces.updateBrand(body);
+    return this.workspaces.updateBrand({ ...body });
+  }
+
+  /**
+   * Approved logo, sent as the raw image body (Content-Type image/png or image/jpeg). The
+   * type is checked from the bytes; the response never contains a path, only the metadata.
+   */
+  @Roles('admin')
+  @Put('brand/logo')
+  async putLogo(@Req() req: Request) {
+    const type = (req.headers['content-type'] ?? '').split(';')[0].trim();
+    if (type !== 'image/png' && type !== 'image/jpeg')
+      throw new BadRequestException('The logo must be a PNG or JPEG image');
+    const declared = Number(req.headers['content-length'] ?? 0);
+    if (declared > MAX_LOGO_BYTES)
+      throw new BadRequestException(
+        `The logo is larger than ${MAX_LOGO_BYTES / 1024} KB`,
+      );
+    return this.workspaces.setLogo(await readRaw(req, MAX_LOGO_BYTES));
+  }
+
+  @Roles('admin')
+  @Delete('brand/logo')
+  @HttpCode(204)
+  async deleteLogo() {
+    await this.workspaces.removeLogo();
+  }
+
+  /** The current workspace's logo image (for the Settings preview). */
+  @Get('brand/logo')
+  async getLogo(@Res() res: Response) {
+    const logo = await this.workspaces.logo();
+    if (!logo) throw new NotFoundException('No logo configured');
+    res.setHeader('Content-Type', logo.mime);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(Buffer.from(logo.data, 'base64'));
   }
 
   @Get()
   async get() {
     const workspace = await this.workspaces.current();
-    let brand: Record<string, string> = {};
-    try {
-      brand = workspace.brand
-        ? (JSON.parse(workspace.brand) as Record<string, string>)
-        : {};
-    } catch {
-      brand = {};
-    }
+    const brand = parseBrand(workspace.brand);
+    const logo = await this.workspaces.logoMeta();
     return {
       brand,
+      logo,
+      branding_missing: missingBranding(brand, !!logo),
       workspace: {
         id: workspace.id,
         slug: workspace.slug,

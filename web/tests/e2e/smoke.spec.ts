@@ -117,9 +117,14 @@ test.describe("Spider smoke", () => {
     await expect(page.locator("ol li").first()).toContainText("e2e note");
   });
 
-  test("reports page creates a template and exposes PDF/CSV/JSON exports", async ({
+  test("reports page creates a template, previews it, copies a table and exports PDF/CSV/JSON", async ({
     page,
+    context,
+    baseURL,
   }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: baseURL,
+    });
     await login(page);
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
@@ -132,15 +137,38 @@ test.describe("Spider smoke", () => {
       .locator("..")
       .locator("..");
     await expect(card).toBeVisible();
-    await expect(card.getByRole("link", { name: /PDF/ })).toHaveAttribute(
+    await card.getByRole("button", { name: "Export" }).click();
+    await expect(
+      card.getByRole("link", { name: "PDF report" }),
+    ).toHaveAttribute("href", /\/api\/reports\/\d+\/export\.pdf/);
+    await expect(card.getByRole("link", { name: "Overview" })).toHaveAttribute(
       "href",
-      /\/api\/reports\/\d+\/export\.pdf/,
+      /\/api\/reports\/\d+\/export\.csv\?section=overview/,
     );
-    const pdf = await page.request.get(
-      (await card
-        .getByRole("link", { name: /PDF/ })
-        .getAttribute("href")) as string,
+    await expect(card.getByRole("link", { name: "JSON data" })).toBeVisible();
+    const pdfHref = (await card
+      .getByRole("link", { name: "PDF report" })
+      .getAttribute("href")) as string;
+    await page.keyboard.press("Escape");
+    await expect(card.getByRole("button", { name: "Export" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
+
+    // preview → Copy puts the visible table on the clipboard as TSV with headers
+    await card.getByRole("button", { name: "Preview" }).click();
+    const perProperty = page.getByRole("table", { name: "Per property" });
+    await expect(perProperty).toBeVisible();
+    const rows = await perProperty.locator("tbody tr").count();
+    await page.getByRole("button", { name: "Copy Per property table" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "copied with headers" }),
+    ).toHaveCount(1);
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clip.split("\n")[0]).toMatch(/^Site\tClicks\tClicks \(previous\)/);
+    expect(clip.split("\n")).toHaveLength(rows + 1);
+
+    const pdf = await page.request.get(pdfHref);
     expect(pdf.status()).toBe(200);
     expect(pdf.headers()["content-type"]).toBe("application/pdf");
     page.once("dialog", (d) => d.accept());
@@ -167,6 +195,14 @@ test.describe("Spider smoke", () => {
     await expect(
       page.getByRole("heading", { name: "Report branding" }),
     ).toBeVisible();
+    // the branding preview follows the form before saving
+    await page
+      .getByLabel("Legal entity name", { exact: true })
+      .fill("Preview Entity LTD");
+    await expect(page.getByTestId("brand-preview")).toContainText(
+      "Preview Entity LTD",
+    );
+    await expect(page.getByText("Preview (unsaved changes)")).toBeVisible();
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login$/);
     await page.goto("/");
