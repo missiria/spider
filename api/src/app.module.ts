@@ -20,6 +20,7 @@ import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { ReportsModule } from './reports/reports.module';
 import { OverviewModule } from './overview/overview.module';
 import { PropertiesModule } from './properties/properties.module';
+import { PublicModule } from './public/public.module';
 import { SettingsController } from './settings/settings.controller';
 import { SyncModule } from './sync/sync.module';
 import { UsersModule } from './users/users.module';
@@ -64,6 +65,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     IntegrationsModule,
     ReportsModule,
     AdminModule,
+    PublicModule,
   ],
   controllers: [AppController, HealthController, SettingsController],
   providers: [
