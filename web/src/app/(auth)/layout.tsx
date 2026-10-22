@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SocialLinks } from "@/components/SocialLinks";
 import { SpiderMark, SpiderWeb } from "@/components/auth/SpiderWeb";
 
 /**
@@ -23,7 +24,10 @@ export default function AuthLayout({
         <div className="flex flex-1 items-center justify-center py-10">
           <div className="w-full max-w-sm">{children}</div>
         </div>
-        <p className="text-center text-xs text-muted">Spider by MISSIRIA</p>
+        <footer className="space-y-2">
+          <p className="text-center text-xs text-muted">Spider by MISSIRIA</p>
+          <SocialLinks />
+        </footer>
       </main>
 
       <aside className="auth-panel relative hidden overflow-hidden lg:flex lg:flex-col lg:justify-between lg:p-12">

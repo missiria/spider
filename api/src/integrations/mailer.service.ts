@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { withSocialFooter } from './mail/social-footer';
 
 export interface MailAttachment {
   filename: string;
@@ -66,12 +67,14 @@ export class MailerService {
     if (!this.transport) {
       return { skipped: true };
     }
+    // Every mail ends with the MISSIRIA social profiles (MISS-0126).
+    const body = withSocialFooter({ text: input.text, html: input.html });
     const info = await this.transport.sendMail({
       from: this.from,
       to: input.to.join(', '),
       subject: input.subject,
-      text: input.text,
-      html: input.html,
+      text: body.text,
+      html: body.html,
       attachments: input.attachments,
     });
     return { skipped: false, messageId: info.messageId };
