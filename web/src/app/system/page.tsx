@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { AppShell } from "@/components/AppShell";
 import { SignupsCard } from "@/components/SignupsCard";
+import { SuperAdminLink } from "@/components/SuperAdminLink";
 import { Button, Card, ErrorBox, Spinner } from "@/components/ui";
 import {
   deactivateUser,
@@ -249,6 +250,7 @@ export default function SystemPage() {
             )}
           </Card>
 
+          {isAdmin && <SuperAdminLink />}
           {isAdmin && <SignupsCard />}
 
           <Card className="p-5">

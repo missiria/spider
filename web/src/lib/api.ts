@@ -289,6 +289,70 @@ export const rejectSignup = (id: number) => api.post(`/signups/${id}/reject`);
 
 export const revokeMySessions = () => api.post("/auth/revoke-sessions");
 
+// ---- super admin (/x-dashboard, MISS-0124) ---------------------------------
+
+export interface AdminOverview {
+  users: number;
+  active: number;
+  pending: number;
+  workspaces: number;
+  properties: number;
+}
+export interface AdminAccount {
+  id: number;
+  email: string;
+  name: string;
+  company: string | null;
+  role: "admin" | "member";
+  is_active: boolean;
+  approval_status: "approved" | "pending" | "rejected";
+  created_at: string;
+  workspace_id: number | null;
+  workspace_slug: string | null;
+  workspace_name: string | null;
+}
+export interface AdminWorkspace {
+  id: number;
+  slug: string;
+  name: string;
+  created_at: string;
+  members: number;
+  properties: number;
+}
+export interface AdminSmtp {
+  configured: boolean;
+  host: string | null;
+  port: number;
+  secure: boolean;
+  starttls: boolean;
+  authenticated: boolean;
+  from: string | null;
+  from_name: string;
+}
+export const getAdminOverview = () =>
+  api.get<AdminOverview>("/admin/overview").then((r) => r.data);
+export const listAdminAccounts = () =>
+  api
+    .get<{ items: AdminAccount[] }>("/admin/accounts")
+    .then((r) => r.data.items);
+export const setAccountActive = (id: number, active: boolean) =>
+  api.post(`/admin/accounts/${id}/${active ? "reactivate" : "deactivate"}`);
+export const listAdminWorkspaces = () =>
+  api
+    .get<{ items: AdminWorkspace[] }>("/admin/workspaces")
+    .then((r) => r.data.items);
+export const getAdminSmtp = () =>
+  api.get<AdminSmtp>("/admin/smtp").then((r) => r.data);
+export const sendSmtpTest = () =>
+  api
+    .post<{ sent: boolean; to: string; error?: string }>("/admin/smtp/test")
+    .then((r) => r.data);
+export const isSuperAdmin = () =>
+  api.get("/admin/whoami").then(
+    () => true,
+    () => false,
+  );
+
 export interface SyncHealth {
   properties: {
     total: number;

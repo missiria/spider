@@ -1,3 +1,4 @@
+import { AdminModule } from './admin/admin.module';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -62,6 +63,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     OpportunitiesModule,
     IntegrationsModule,
     ReportsModule,
+    AdminModule,
   ],
   controllers: [AppController, HealthController, SettingsController],
   providers: [

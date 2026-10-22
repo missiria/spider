@@ -325,12 +325,14 @@ describe('Spider API (e2e)', () => {
       .expect(200);
     const id = list.body.items[0].id;
     expect(list.body.items[0].title).not.toMatch(/penalt/i);
+    // the scored priority depends on the fixture dates: always ask for a different one
+    const priority = list.body.items[0].priority === 'high' ? 'low' : 'high';
     const upd = await http
       .patch(`/opportunities/${id}`)
       .set(auth())
       .send({
         status: 'in_progress',
-        priority: 'high',
+        priority,
         due_date: '2026-10-22',
         note: 'looking',
       })
@@ -1394,5 +1396,114 @@ describe('Spider API (e2e)', () => {
     await http.get('/auth/me').set(bearer(live.token)).expect(401);
     await signIn('Signup-pass-123', 401);
     await signIn('Brand-new-pass-456');
+  });
+
+  it('x-dashboard admin API: operator admins only, no secrets, deactivation signs out', async () => {
+    const workspaces = app.get(WorkspacesService);
+    const users = app.get(UsersService);
+    const login = async (email: string, password: string) =>
+      (await http.post('/auth/login').send({ email, password }).expect(200))
+        .body.token as string;
+    const as = (t: string) => ({ Authorization: `Bearer ${t}` });
+
+    // anonymous
+    await http.get('/admin/overview').expect(401);
+
+    // admin of another workspace
+    const wsX = await workspaces.create('x-tenant', 'X tenant');
+    await users.create({
+      email: 'x-admin@example.com',
+      password: 'X-admin-pass-123',
+      name: 'X admin',
+      role: 'admin',
+      workspaceId: wsX.id,
+    });
+    const xToken = await login('x-admin@example.com', 'X-admin-pass-123');
+    for (const path of [
+      '/admin/whoami',
+      '/admin/overview',
+      '/admin/accounts',
+      '/admin/workspaces',
+      '/admin/smtp',
+    ]) {
+      await http.get(path).set(as(xToken)).expect(403);
+    }
+    await http.post('/admin/smtp/test').set(as(xToken)).expect(403);
+
+    // member (not admin) of the operator workspace
+    const op = await workspaces.ensureDefault();
+    const member = await users.create({
+      email: 'op-member@example.com',
+      password: 'Op-member-pass-123',
+      name: 'Op member',
+      role: 'member',
+      workspaceId: op.id,
+    });
+    const memberToken = await login(
+      'op-member@example.com',
+      'Op-member-pass-123',
+    );
+    await http.get('/admin/overview').set(as(memberToken)).expect(403);
+    await http
+      .post(`/admin/accounts/${member.id}/deactivate`)
+      .set(as(memberToken))
+      .expect(403);
+
+    // operator admin
+    await http.get('/admin/whoami').set(auth()).expect(200);
+    const ov = await http.get('/admin/overview').set(auth()).expect(200);
+    expect(ov.body.workspaces).toBeGreaterThanOrEqual(2);
+    const accounts = await http.get('/admin/accounts').set(auth()).expect(200);
+    const emails = accounts.body.items.map((a: { email: string }) => a.email);
+    expect(emails).toEqual(
+      expect.arrayContaining(['x-admin@example.com', 'op-member@example.com']),
+    );
+    expect(JSON.stringify(accounts.body)).not.toMatch(/password|token_version/);
+    const ws = await http.get('/admin/workspaces').set(auth()).expect(200);
+    expect(
+      ws.body.items.find((w: { slug: string }) => w.slug === 'x-tenant'),
+    ).toMatchObject({ members: 1, properties: 0 });
+    const smtp = await http.get('/admin/smtp').set(auth()).expect(200);
+    expect(Object.keys(smtp.body).sort()).toEqual(
+      [
+        'authenticated',
+        'configured',
+        'from',
+        'from_name',
+        'host',
+        'port',
+        'secure',
+        'starttls',
+      ].sort(),
+    );
+    const test = await http.post('/admin/smtp/test').set(auth()).expect(201);
+    expect(test.body).toMatchObject({ sent: false });
+
+    // cannot lock themselves out
+    const me = await http.get('/auth/me').set(auth()).expect(200);
+    await http
+      .post(`/admin/accounts/${me.body.id}/deactivate`)
+      .set(auth())
+      .expect(400);
+
+    // deactivation revokes live sessions; reactivation lets them sign in again
+    await http
+      .post(`/admin/accounts/${member.id}/deactivate`)
+      .set(auth())
+      .expect(204);
+    await http.get('/auth/me').set(as(memberToken)).expect(401);
+    await http
+      .post('/auth/login')
+      .send({ email: 'op-member@example.com', password: 'Op-member-pass-123' })
+      .expect(401);
+    await http
+      .post(`/admin/accounts/${member.id}/reactivate`)
+      .set(auth())
+      .expect(204);
+    await login('op-member@example.com', 'Op-member-pass-123');
+    await http
+      .post('/admin/accounts/999999/deactivate')
+      .set(auth())
+      .expect(404);
   });
 });
