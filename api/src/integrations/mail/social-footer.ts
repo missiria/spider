@@ -1,12 +1,10 @@
 import { SOCIAL_LINKS } from './social-links';
 
 /**
- * Appends the MISSIRIA social profiles to a transactional mail (MISS-0126).
+ * MISSIRIA social profiles printed in the footer of every transactional mail (MISS-0126).
  *
- * Today every Spider mail is plain text, so the text footer is what customers see; the HTML
- * branch only runs when a caller passes `html`. Once the shared branded layout lands
- * (MISS-0121, `renderEmail` in ./layout.ts prints the same SOCIAL_LINKS), MailerService
- * should call that instead of this helper, otherwise the links would appear twice.
+ * The shared branded layout (`renderEmail` in ./layout.ts, MISS-0121) is the only caller:
+ * MailerService no longer appends a separate footer, so the links print exactly once.
  */
 export const SOCIAL_FOOTER_HEADING = 'MISSIRIA on social media';
 
@@ -17,24 +15,10 @@ export function socialFooterText(): string {
   ].join('\n');
 }
 
-export function socialFooterHtml(): string {
+/** Class-styled fragment for the layout footer; `escape` is the layout's HTML escaper. */
+export function socialFooterHtml(escape: (value: string) => string): string {
   const links = SOCIAL_LINKS.map(
-    ({ label, href }) => `<a href="${href}">${label}</a>`,
+    ({ label, href }) => `<a href="${escape(href)}">${escape(label)}</a>`,
   ).join(' &middot; ');
-  return `<p style="font-size:12px;line-height:1.6;color:#64748b">${SOCIAL_FOOTER_HEADING}: ${links}</p>`;
-}
-
-export function withSocialFooter(input: { text: string; html?: string }): {
-  text: string;
-  html?: string;
-} {
-  const text = `${input.text.replace(/\s+$/, '')}\n\n${socialFooterText()}\n`;
-  if (!input.html) {
-    return { text };
-  }
-  const footer = socialFooterHtml();
-  const html = /<\/body>/i.test(input.html)
-    ? input.html.replace(/<\/body>/i, `${footer}</body>`)
-    : `${input.html}${footer}`;
-  return { text, html };
+  return `<p class="social">${escape(SOCIAL_FOOTER_HEADING)}: ${links}</p>`;
 }

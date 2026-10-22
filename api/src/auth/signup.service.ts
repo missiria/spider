@@ -125,7 +125,7 @@ export class SignupService {
           'Confirm this address to finish your Spider account request (link valid 24 hours):',
           `${this.publicUrl}/verify-email?token=${token}`,
           '',
-          'An admin reviews every new account after that; we will email you once yours is approved.',
+          'After you confirm, an admin approves your account (usually within one business day); we will email you once you can sign in.',
           'If you did not ask for a Spider account, ignore this email.',
         ].join('\n'),
       }),
@@ -214,6 +214,13 @@ export class SignupService {
     user.is_active = false;
     await this.users.save(user);
     this.logger.log(`reject: user=${user.id}`);
+    this.background(
+      this.mailer.send({
+        to: [user.email],
+        subject: 'Your Spider account request',
+        text: `Hi ${user.name},\n\nWe are unable to approve your account request. Contact support if you have questions.`,
+      }),
+    );
   }
 
   // ---- password reset ----------------------------------------------------

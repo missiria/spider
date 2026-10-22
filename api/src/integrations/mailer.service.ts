@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
-import { withSocialFooter } from './mail/social-footer';
+import { EmailBrand } from './mail/email-brand.entity';
+import { EmailBrandService } from './mail/email-brand.service';
+import { renderEmail } from './mail/layout';
 
 export interface MailAttachment {
   filename: string;
@@ -20,7 +22,10 @@ export class MailerService {
   private readonly configured: boolean;
   private readonly from: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly brands: EmailBrandService,
+  ) {
     const host = config.get<string>('SMTP_HOST') ?? '';
     this.configured = Boolean(host && host !== 'localhost');
     const fromName = config.get<string>('MAIL_FROM_NAME') ?? 'Spider';
@@ -57,24 +62,31 @@ export class MailerService {
     return this.configured;
   }
 
-  async send(input: {
-    to: string[];
-    subject: string;
-    text: string;
-    html?: string;
-    attachments?: MailAttachment[];
-  }): Promise<{ skipped: boolean; messageId?: string }> {
+  async send(
+    input: {
+      to: string[];
+      subject: string;
+      text: string;
+      attachments?: MailAttachment[];
+    },
+    previewBrand?: EmailBrand,
+  ): Promise<{ skipped: boolean; messageId?: string }> {
     if (!this.transport) {
       return { skipped: true };
     }
-    // Every mail ends with the MISSIRIA social profiles (MISS-0126).
-    const body = withSocialFooter({ text: input.text, html: input.html });
+    // One branded shell for every mail (MISS-0121). Its footer carries the MISSIRIA social
+    // profiles (MISS-0126), so no separate social footer is appended here.
+    const rendered = renderEmail(
+      previewBrand ?? (await this.brands.published()),
+      input.subject,
+      input.text,
+    );
     const info = await this.transport.sendMail({
       from: this.from,
       to: input.to.join(', '),
-      subject: input.subject,
-      text: body.text,
-      html: body.html,
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
       attachments: input.attachments,
     });
     return { skipped: false, messageId: info.messageId };

@@ -1,3 +1,7 @@
+import { EmailBrandRevision } from './mail/email-brand.entity';
+import { EmailBrandService } from './mail/email-brand.service';
+import { EmailBrandController } from './mail/email-brand.controller';
+import { EmailBrandGuard } from './mail/email-brand.guard';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Opportunity } from '../opportunities/entities/opportunity.entity';
@@ -19,6 +23,7 @@ import { WebhooksService } from './webhooks.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      EmailBrandRevision,
       Webhook,
       WebhookDelivery,
       AlertRule,
@@ -29,8 +34,14 @@ import { WebhooksService } from './webhooks.service';
     ]),
     WorkspacesModule,
   ],
-  providers: [MailerService, WebhooksService, AlertsService],
-  controllers: [WebhooksController, AlertsController],
-  exports: [MailerService, WebhooksService, AlertsService],
+  providers: [
+    EmailBrandService,
+    EmailBrandGuard,
+    MailerService,
+    WebhooksService,
+    AlertsService,
+  ],
+  controllers: [EmailBrandController, WebhooksController, AlertsController],
+  exports: [EmailBrandService, MailerService, WebhooksService, AlertsService],
 })
 export class IntegrationsModule {}

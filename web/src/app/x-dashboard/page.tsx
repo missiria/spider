@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { SignupsCard } from "@/components/SignupsCard";
@@ -234,6 +235,12 @@ export default function XDashboardPage() {
           >
             {testing ? "Sending…" : "Send me a test email"}
           </Button>
+          <Link
+            href="/x-dashboard/email"
+            className="mt-3 block text-sm font-medium text-primary"
+          >
+            Edit shared email branding →
+          </Link>
         </Card>
       </div>
     </div>

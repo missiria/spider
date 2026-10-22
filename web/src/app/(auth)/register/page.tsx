@@ -71,8 +71,9 @@ function RegisterForm() {
       >
         We sent a link to{" "}
         <span className="font-medium text-foreground">{form.email}</span>. Open
-        it within 24 hours to confirm the address. An admin then reviews your
-        request, and we email you once you can sign in.
+        it within 24 hours to confirm the address. An admin then approves your
+        request (usually within one business day), and we email you once you can
+        sign in.
       </DoneState>
     );
   }
@@ -84,7 +85,8 @@ function RegisterForm() {
         Create your account
       </h1>
       <p className="mt-1.5 text-[15px] text-muted">
-        New accounts are reviewed before the first sign-in.
+        Confirm by email, then an admin approves (usually within one business
+        day).
       </p>
       <form onSubmit={submit} className="auth-swap mt-8 space-y-5">
         <TextField

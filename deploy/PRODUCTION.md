@@ -88,6 +88,9 @@ retries every 5 min (4 attempts: now, +5 min, +30 min, +2 h).
 (same relay as shark-app). Without `SMTP_HOST` the API starts but records every scheduled report
 and email alert as **skipped** (visible on Reports / Settings → Alerts), never silently dropped.
 Set `APP_PUBLIC_URL=https://spider.missiria.dev` so links in emails and webhook payloads resolve.
+Use `MAIL_FROM_NAME="Spider"`. Every mail renders through the shared branded layout (MISS-0121,
+edited at `/x-dashboard/email`, see [EMAIL-BRANDING.md](EMAIL-BRANDING.md)); its footer carries the
+MISSIRIA social links.
 
 ## Support procedures
 

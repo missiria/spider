@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EmailBrandLink } from "@/components/EmailBrandLink";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { AppShell } from "@/components/AppShell";
@@ -119,6 +120,7 @@ export default function SystemPage() {
       <p className="mt-1 text-sm text-muted">
         Sync health, failures and beta access. Refreshes every 30 s.
       </p>
+      <EmailBrandLink />
       {error && (
         <div className="mt-4">
           <ErrorBox message={error} />
