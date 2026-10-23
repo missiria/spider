@@ -29,10 +29,14 @@ const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).{10,72}$/;
 const PASSWORD_MESSAGE =
   'Password must be 10 to 72 characters with at least one letter and one digit';
 
+const NO_CONTROL_CHARS = /^[^\u0000-\u001f\u007f]*$/;
+const NO_CONTROL_CHARS_MESSAGE = 'Must be a single line of text';
+
 class RegisterDto {
   @IsString()
   @MinLength(1)
   @MaxLength(120)
+  @Matches(NO_CONTROL_CHARS, { message: NO_CONTROL_CHARS_MESSAGE })
   name: string;
 
   @IsEmail()
@@ -46,6 +50,7 @@ class RegisterDto {
   @IsOptional()
   @IsString()
   @MaxLength(120)
+  @Matches(NO_CONTROL_CHARS, { message: NO_CONTROL_CHARS_MESSAGE })
   company?: string;
 }
 
@@ -91,6 +96,7 @@ class UpdateMeDto {
   @IsString()
   @MinLength(1)
   @MaxLength(120)
+  @Matches(NO_CONTROL_CHARS, { message: NO_CONTROL_CHARS_MESSAGE })
   name?: string;
 
   @IsOptional()

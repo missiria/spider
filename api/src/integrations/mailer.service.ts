@@ -21,11 +21,15 @@ export class MailerService {
   private transport: nodemailer.Transporter | null = null;
   private readonly configured: boolean;
   private readonly from: string;
+  private readonly linkOrigin: string;
 
   constructor(
     private readonly config: ConfigService,
     private readonly brands: EmailBrandService,
   ) {
+    this.linkOrigin = MailerService.originOf(
+      config.get<string>('APP_PUBLIC_URL') ?? '',
+    );
     const host = config.get<string>('SMTP_HOST') ?? '';
     this.configured = Boolean(host && host !== 'localhost');
     const fromName = config.get<string>('MAIL_FROM_NAME') ?? 'Spider';
@@ -80,6 +84,7 @@ export class MailerService {
       previewBrand ?? (await this.brands.published()),
       input.subject,
       input.text,
+      this.linkOrigin,
     );
     const info = await this.transport.sendMail({
       from: this.from,
@@ -90,5 +95,13 @@ export class MailerService {
       attachments: input.attachments,
     });
     return { skipped: false, messageId: info.messageId };
+  }
+
+  private static originOf(value: string): string {
+    try {
+      return new URL(value).origin;
+    } catch {
+      return '';
+    }
   }
 }

@@ -22,19 +22,33 @@ export function safeUrl(value: string): string {
   }
 }
 
-/** All mail bodies are plain structured data, never user-authored HTML. */
-export function renderEmail(brand: EmailBrand, subject: string, text: string) {
+/**
+ * All mail bodies are plain structured data, never user-authored HTML. Only links to
+ * `linkOrigin` (the app's own APP_PUBLIC_URL origin) become buttons or anchors: a URL typed by a
+ * user (signup name, company, alert payload) stays plain escaped text, so it cannot pose as a
+ * branded call to action.
+ */
+export function renderEmail(
+  brand: EmailBrand,
+  subject: string,
+  text: string,
+  linkOrigin = '',
+) {
   const e = escapeHtml;
   const accent = /^#[0-9a-f]{6}$/i.test(brand.accentColor)
     ? brand.accentColor
     : '#4f46e5';
   const logo = safeUrl(brand.logoUrl);
   const website = safeUrl(brand.websiteUrl);
+  const ownUrl = (value: string): string => {
+    const url = safeUrl(value);
+    return url && linkOrigin && new URL(url).origin === linkOrigin ? url : '';
+  };
   const body = text
     .split(/\n\s*\n/)
     .map((paragraph) => {
       // Link only HTTPS URLs, preserving the exact token-bearing destination.
-      const standalone = safeUrl(paragraph.trim());
+      const standalone = ownUrl(paragraph.trim());
       if (standalone) {
         const path = new URL(standalone).pathname;
         const label = path.includes('verify-email')
@@ -63,7 +77,7 @@ export function renderEmail(brand: EmailBrand, subject: string, text: string) {
       const content = paragraph
         .split(/(https:\/\/[^\s<>]+)/g)
         .map((part) => {
-          const url = safeUrl(part);
+          const url = ownUrl(part);
           return url
             ? `<a href="${e(url)}">${e(part)}</a>`
             : e(part).replace(/\n/g, '<br>');
@@ -89,6 +103,9 @@ body{margin:0;background:#f8fafc;color:#0f172a;font-family:Arial,Helvetica,sans-
       .join('\n\n'),
   };
 }
+
+/** Origin of the links in EMAIL_SAMPLES (previews only). */
+export const SAMPLE_LINK_ORIGIN = 'https://example.com';
 
 export const EMAIL_SAMPLES = {
   confirmation: {

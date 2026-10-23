@@ -1,7 +1,11 @@
 /** Offline previews: no database or SMTP needed. */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { EMAIL_SAMPLES, renderEmail } from '../integrations/mail/layout';
+import {
+  EMAIL_SAMPLES,
+  SAMPLE_LINK_ORIGIN,
+  renderEmail,
+} from '../integrations/mail/layout';
 const output = resolve('tmp/mail-preview');
 mkdirSync(output, { recursive: true });
 for (const [name, sample] of Object.entries(EMAIL_SAMPLES)) {
@@ -18,6 +22,7 @@ for (const [name, sample] of Object.entries(EMAIL_SAMPLES)) {
     },
     sample.subject,
     sample.text,
+    SAMPLE_LINK_ORIGIN,
   );
   writeFileSync(resolve(output, `${name}.html`), rendered.html);
   writeFileSync(resolve(output, `${name}.txt`), rendered.text);

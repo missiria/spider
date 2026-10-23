@@ -16,7 +16,7 @@ import { EmailBrandGuard } from './email-brand.guard';
 import { AuthUser } from '../../auth/jwt.strategy';
 import { MailerService } from '../mailer.service';
 import { EmailBrandService } from './email-brand.service';
-import { EMAIL_SAMPLES, renderEmail } from './layout';
+import { EMAIL_SAMPLES, SAMPLE_LINK_ORIGIN, renderEmail } from './layout';
 
 export class EmailBrandDto {
   @IsString() @MaxLength(80) @Matches(/\S/) name: string;
@@ -67,7 +67,7 @@ export class EmailBrandController {
     @Query('template') key?: string,
   ) {
     const sample = this.sample(key);
-    return renderEmail(body, sample.subject, sample.text);
+    return renderEmail(body, sample.subject, sample.text, SAMPLE_LINK_ORIGIN);
   }
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('test')

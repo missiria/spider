@@ -66,7 +66,7 @@ describe('shared email layout', () => {
   });
   it('preserves token-bearing links and provides a CTA and text fallback', () => {
     const link = 'https://example.com/reset-password?token=secret&next=account';
-    const result = renderEmail(brand, 'Reset', link);
+    const result = renderEmail(brand, 'Reset', link, 'https://example.com');
     expect(result.html).toContain(
       'href="https://example.com/reset-password?token=secret&amp;next=account"',
     );
@@ -90,5 +90,25 @@ describe('shared email layout', () => {
       'https://user:password@example.com',
     ])
       expect(safeUrl(url)).toBe('');
+  });
+
+  it('makes buttons and links only for the app origin, never for user-typed URLs', () => {
+    const result = renderEmail(
+      brand,
+      'New account request',
+      'Name: Alex\nCompany: Example\n\nhttps://evil.example.net/login\n\nSee https://evil.example.net/pay too.\n\nhttps://example.com/x-dashboard',
+      'https://example.com',
+    );
+    expect(result.html).not.toContain('href="https://evil.example.net');
+    expect(result.html).toContain('https://evil.example.net/login');
+    expect(result.html.match(/class="button"/g)).toHaveLength(1);
+    expect(result.html).toContain(
+      '<a class="button" href="https://example.com/x-dashboard">',
+    );
+  });
+
+  it('renders no button at all without a link origin', () => {
+    const result = renderEmail(brand, 'Reset', 'https://example.com/login');
+    expect(result.html).not.toContain('class="button"');
   });
 });
