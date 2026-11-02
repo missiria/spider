@@ -493,6 +493,60 @@ describe('Spider API (e2e)', () => {
       .expect(204);
   });
 
+  it('property page exports (MISS-0171): CSV and PDF of a table for the period and filters on screen, no saved report', async () => {
+    const q = 'start=2026-09-15&end=2026-10-12&exclude_query=player';
+    const csv = await http
+      .get(`/reports/property/${propertyId}/export.csv?section=queries&${q}`)
+      .set(auth())
+      .expect(200);
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    expect(csv.headers['content-disposition']).toMatch(
+      /attachment; filename=".+\.csv"/,
+    );
+    expect(csv.text.startsWith('\uFEFFquery,clicks')).toBe(true);
+    const lines = csv.text.trim().split('\n').slice(1);
+    expect(lines.length).toBeGreaterThan(0);
+    // the server-side filter on screen applies: no excluded query in the export
+    for (const l of lines) expect(l).not.toMatch(/player/);
+    // the same rows the property page shows for that period and filter
+    const detail = await http
+      .get(`/properties/${propertyId}?${q}`)
+      .set(auth())
+      .expect(200);
+    expect(lines.length).toBe(detail.body.breakdowns.query.rows.length);
+    const countries = await http
+      .get(
+        `/reports/property/${propertyId}/export.csv?section=countries&start=2026-09-15&end=2026-10-12`,
+      )
+      .set(auth())
+      .expect(200);
+    expect(countries.text.startsWith('\uFEFFcountry,clicks')).toBe(true);
+    const pdf = await http
+      .get(`/reports/property/${propertyId}/export.pdf?section=pages&days=28`)
+      .set(auth())
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+    expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    // unknown section, unknown property, no session
+    await http
+      .get(`/reports/property/${propertyId}/export.csv?section=users`)
+      .set(auth())
+      .expect(400);
+    await http
+      .get(`/reports/property/999999/export.csv?section=queries`)
+      .set(auth())
+      .expect(404);
+    await http
+      .get(`/reports/property/${propertyId}/export.csv?section=queries`)
+      .expect(401);
+  });
+
   it('webhooks: signed delivery to a local receiver, dedupe, deliveries log, alerts through webhook', async () => {
     const received: {
       event: string;
@@ -812,6 +866,14 @@ describe('Spider API (e2e)', () => {
 
     // read / export
     await http.get(`/properties/${propertyId}`).set(asB).expect(404);
+    await http
+      .get(`/reports/property/${propertyId}/export.csv?section=queries`)
+      .set(asB)
+      .expect(404);
+    await http
+      .get(`/reports/property/${propertyId}/export.pdf?section=queries`)
+      .set(asB)
+      .expect(404);
     await http.get(`/opportunities/${oppA.id}`).set(asB).expect(404);
     await http.get(`/reports/${reportA.body.id}/data`).set(asB).expect(404);
     await http

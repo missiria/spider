@@ -4,7 +4,7 @@
  * what the table shows: the rows the report returned for this workspace, nothing hidden.
  */
 import { formatDelta, formatInt, formatPct, formatPosition } from "./format";
-import type { ReportData } from "./types";
+import type { ReportData, TopRow } from "./types";
 
 export type ColumnKind = "text" | "int" | "pct" | "pos" | "delta";
 /** A value, or a number with its own kind (KPI tables mix counts, ratios and positions in a column). */
@@ -176,6 +176,37 @@ export function reportTables(data: ReportData): ExportTable[] {
     });
   }
   return out;
+}
+
+/**
+ * A property page table (MISS-0171) as exported: the rows given (the ones on screen for Copy),
+ * the key shown the way the table labels it, then the four Search Console metrics.
+ */
+export function topRowsTable(
+  title: string,
+  keyLabel: string,
+  rows: TopRow[],
+  label: (key: string) => string = (k) => k,
+): ExportTable {
+  return {
+    section: "property",
+    title,
+    note: null,
+    columns: [
+      { label: keyLabel, kind: "text" },
+      { label: "Clicks", kind: "int" },
+      { label: "Impressions", kind: "int" },
+      { label: "CTR", kind: "pct" },
+      { label: "Position", kind: "pos" },
+    ],
+    rows: rows.map((r) => [
+      label(r.key_text),
+      r.clicks,
+      r.impressions,
+      r.ctr,
+      r.position,
+    ]),
+  };
 }
 
 export type CopyResult = { ok: true } | { ok: false; reason: string };

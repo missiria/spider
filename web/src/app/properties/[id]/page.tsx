@@ -20,6 +20,8 @@ import {
   Search,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ExportMenu, type ExportMenuItem } from "@/components/ExportMenu";
+import { copyText, toTsv, topRowsTable } from "@/lib/exportTable";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { SavedViews } from "@/components/SavedViews";
 import {
@@ -34,6 +36,8 @@ import {
   checkProperty,
   errorMessage,
   getProperty,
+  propertyExportUrl,
+  type PropertyExportSection,
   getSettings,
   resyncProperty,
 } from "@/lib/api";
@@ -121,6 +125,15 @@ const TOP_COLUMNS: {
 ];
 
 type Kind = "page" | "query" | "country" | "device" | "search_appearance";
+
+/** API export section of each property table (MISS-0171). */
+const SECTION_OF: Record<Kind, PropertyExportSection> = {
+  page: "pages",
+  query: "queries",
+  country: "countries",
+  device: "devices",
+  search_appearance: "search_appearance",
+};
 
 function labelFor(kind: Kind, key: string): string {
   if (kind === "page") return pathOf(key);
@@ -255,11 +268,17 @@ function TopTable({
   incomplete,
   selected,
   onSelect,
+  exportFor,
 }: {
   title: string;
   breakdown: DimensionBreakdown | undefined;
   kind: Kind;
   host: string;
+  /** property + the page's period and filters: drives the CSV / PDF links (MISS-0171) */
+  exportFor?: {
+    propertyId: number;
+    query: Record<string, string | number | undefined>;
+  };
   regex?: { include?: string; exclude?: string };
   onRegex?: (v: { include?: string; exclude?: string }) => void;
   incomplete?: boolean;
@@ -271,12 +290,6 @@ function TopTable({
   const visible = useMemo(() => applyTopState(rows, state), [rows, state]);
   const filtered = state.search !== "" || state.minClicks > 0;
   const wide = kind === "page" || kind === "query";
-  const regexBar =
-    wide && onRegex ? (
-      <div className="border-b border-border px-4 py-2">
-        <RegexFilters value={regex ?? {}} onApply={onRegex} />
-      </div>
-    ) : null;
   const noun =
     kind === "page"
       ? "pages"
@@ -287,6 +300,63 @@ function TopTable({
           : kind === "device"
             ? "devices"
             : "appearances";
+  const [announce, setAnnounce] = useState("");
+  const keyLabel = TOP_COLUMNS[0].label(kind);
+  const exportItems: ExportMenuItem[] = exportFor
+    ? [
+        {
+          key: "copy",
+          group: "Copy",
+          kind: "copy",
+          label: `Copy ${visible.length} row${visible.length === 1 ? "" : "s"} shown`,
+          onSelect: () => {
+            void (async () => {
+              // Copy = exactly the rows on screen (search, minimum clicks and sort applied)
+              const table = topRowsTable(title, keyLabel, visible, (k) =>
+                kind === "page" || kind === "query" ? k : labelFor(kind, k),
+              );
+              const res = await copyText(toTsv(table));
+              const message = res.ok
+                ? `${keyLabel}: ${visible.length} row${visible.length === 1 ? "" : "s"} copied with headers`
+                : `Could not copy the ${noun}. ${res.reason}`;
+              setAnnounce(message);
+              if (res.ok) toast.success(message);
+              else toast.error(message);
+            })();
+          },
+        },
+        {
+          key: "csv",
+          group: "File",
+          kind: "csv",
+          label: `CSV, all ${rows.length} ${noun}`,
+          href: propertyExportUrl(
+            exportFor.propertyId,
+            "csv",
+            SECTION_OF[kind],
+            exportFor.query,
+          ),
+        },
+        {
+          key: "pdf",
+          group: "File",
+          kind: "pdf",
+          label: "PDF report",
+          href: propertyExportUrl(
+            exportFor.propertyId,
+            "pdf",
+            SECTION_OF[kind],
+            exportFor.query,
+          ),
+        },
+      ]
+    : [];
+  const regexBar =
+    wide && onRegex ? (
+      <div className="border-b border-border px-4 py-2">
+        <RegexFilters value={regex ?? {}} onApply={onRegex} />
+      </div>
+    ) : null;
 
   return (
     <Card>
@@ -324,6 +394,12 @@ function TopTable({
           )}
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-sm">
+          {exportItems.length > 0 && rows.length > 0 && (
+            <ExportMenu items={exportItems} label="Export" />
+          )}
+          <span className="sr-only" role="status" aria-live="polite">
+            {announce}
+          </span>
           <label className="relative">
             <Search
               className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
@@ -616,6 +692,10 @@ export default function PropertyPage() {
   }
 
   const p = data.property;
+  const exportFor = {
+    propertyId: id,
+    query: { ...periodParams(period), ...filters },
+  };
   const unreliable = (d: Dimension) => data.coverage.unreliable.includes(d);
 
   return (
@@ -895,6 +975,7 @@ export default function PropertyPage() {
             )
           }
           incomplete={unreliable("page")}
+          exportFor={exportFor}
         />
         <TopTable
           title={`Top queries · ${data.period.start} → ${data.period.end}`}
@@ -913,6 +994,7 @@ export default function PropertyPage() {
             )
           }
           incomplete={unreliable("query")}
+          exportFor={exportFor}
         />
         <div className="grid gap-6 xl:grid-cols-3">
           <TopTable
@@ -921,6 +1003,7 @@ export default function PropertyPage() {
             kind="country"
             host={hostOf(p.site_url)}
             incomplete={unreliable("country")}
+            exportFor={exportFor}
             selected={splitKeys(filters.country)}
             onSelect={(k) =>
               setFilters({
@@ -934,6 +1017,7 @@ export default function PropertyPage() {
             kind="device"
             host={hostOf(p.site_url)}
             incomplete={unreliable("device")}
+            exportFor={exportFor}
             selected={splitKeys(filters.device)}
             onSelect={(k) =>
               setFilters({ device: toggleKey(filters.device, k.toUpperCase()) })
@@ -945,6 +1029,7 @@ export default function PropertyPage() {
             kind="search_appearance"
             host={hostOf(p.site_url)}
             incomplete={unreliable("search_appearance")}
+            exportFor={exportFor}
           />
         </div>
       </div>

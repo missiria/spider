@@ -5,6 +5,7 @@ import {
   displayCell,
   reportTables,
   toTsv,
+  topRowsTable,
 } from "./exportTable";
 import type { ReportData } from "./types";
 
@@ -194,5 +195,48 @@ describe("copyText", () => {
     const r = await copyText("x");
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.reason).toMatch(/blocked clipboard access/);
+  });
+});
+
+describe("topRowsTable (MISS-0171)", () => {
+  const rows = [
+    {
+      id: "a",
+      key_text: "=cmd|calc",
+      clicks: 12,
+      impressions: 340,
+      ctr: 0.0353,
+      position: 4.26,
+    },
+    {
+      id: "b",
+      key_text: "seo audit",
+      clicks: 3,
+      impressions: 90,
+      ctr: 0.0333,
+      position: 11,
+    },
+  ];
+  it("copies the given rows with headers, formula-guarded, paste-friendly numbers", () => {
+    const tsv = toTsv(topRowsTable("Top queries", "Query", rows));
+    expect(tsv.split("\n")).toEqual([
+      "Query\tClicks\tImpressions\tCTR\tPosition",
+      "'=cmd|calc\t12\t340\t3.53%\t4.3",
+      "seo audit\t3\t90\t3.33%\t11.0",
+    ]);
+  });
+  it("labels keys the way the table shows them", () => {
+    const t = topRowsTable(
+      "Countries",
+      "Country",
+      [{ ...rows[1], key_text: "fra" }],
+      (k) => `France (${k.toUpperCase()})`,
+    );
+    expect(t.rows[0][0]).toBe("France (FRA)");
+  });
+  it("an empty selection copies the header only", () => {
+    expect(toTsv(topRowsTable("Top pages", "Page", []))).toBe(
+      "Page\tClicks\tImpressions\tCTR\tPosition",
+    );
   });
 });

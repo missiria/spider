@@ -88,6 +88,24 @@ export interface ReportData {
     | null;
 }
 
+/** Tables of the property page that have an Export menu (MISS-0171). */
+export const PROPERTY_EXPORT_SECTIONS = [
+  'pages',
+  'queries',
+  'countries',
+  'devices',
+  'search_appearance',
+] as const;
+export type PropertyExportSection = (typeof PROPERTY_EXPORT_SECTIONS)[number];
+export interface PropertyExportFilters {
+  include_query?: string;
+  exclude_query?: string;
+  include_page?: string;
+  exclude_page?: string;
+  country?: string;
+  device?: string;
+}
+
 const SECTION_TITLES: Record<
   Exclude<ReportSection, 'overview' | 'opportunities'>,
   { title: string; keyLabel: string; dimension: Dimension }
@@ -256,17 +274,66 @@ export class ReportsService {
       return base;
     }
 
-    const property = await this.properties.get(r.property_id as number);
+    return this.fillProperty(base, r.property_id as number, cfg);
+  }
+
+  /**
+   * One property table (or several) for the period and filters on screen, without a saved
+   * report (MISS-0171): the property page's Export menu. Same builder, brand and limits as a
+   * report, so the PDF and CSV look exactly like report exports.
+   */
+  async propertyExport(
+    propertyId: number,
+    section: PropertyExportSection,
+    period: { days?: number; start?: string; end?: string },
+    filters: PropertyExportFilters,
+    rowLimit: number,
+  ): Promise<ReportData> {
+    const property = await this.properties.get(propertyId); // tenant-scoped: 404 outside the workspace
+    const meta = SECTION_TITLES[section];
+    const base: ReportData = {
+      report_id: 0,
+      title: `${property.display_name} · ${meta.title}`,
+      scope: 'property',
+      property: null,
+      generated_at: new Date().toISOString(),
+      data_through: null,
+      period: resolvePeriod(period),
+      previousPeriod: resolvePeriod(period),
+      notes: null,
+      overview: null,
+      tables: [],
+      opportunities: null,
+    };
+    return this.fillProperty(
+      base,
+      propertyId,
+      { period, sections: ['overview', section], limit: rowLimit, filters },
+      filters,
+    );
+  }
+
+  private async fillProperty(
+    base: ReportData,
+    propertyId: number,
+    cfg: {
+      period: { days?: number; start?: string; end?: string };
+      sections: ReportSection[];
+      limit: number;
+      filters?: ReportConfig['filters'];
+    },
+    keyFilters: PropertyExportFilters = {},
+  ): Promise<ReportData> {
+    const property = await this.properties.get(propertyId);
     base.property = {
       id: property.id,
       display_name: property.display_name,
       site_url: property.site_url,
     };
-    const detail = await this.overview.propertyDetail(
-      property,
-      cfg.period,
-      cfg.filters ?? {},
-    );
+    const detail = await this.overview.propertyDetail(property, cfg.period, {
+      ...(cfg.filters ?? {}),
+      ...keyFilters,
+    });
     base.previousPeriod = detail.previousPeriod;
     base.data_through = detail.series.length
       ? detail.series[detail.series.length - 1].date

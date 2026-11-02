@@ -422,6 +422,23 @@ export const reportExportUrl = (
   section?: string,
 ) =>
   `/api/reports/${id}/export.${kind}${kind === "csv" && section ? `?section=${encodeURIComponent(section)}` : ""}`;
+/**
+ * Property page exports (MISS-0171): the table's CSV (all rows) or the branded PDF for the period
+ * and filters on screen, without a saved report.
+ */
+export const propertyExportUrl = (
+  id: number,
+  kind: "csv" | "pdf",
+  section: PropertyExportSection,
+  query: Record<string, string | number | undefined>,
+) => {
+  const params = new URLSearchParams({ section });
+  for (const [k, v] of Object.entries(query))
+    if (v !== undefined && v !== "") params.set(k, String(v));
+  return `/api/reports/property/${id}/export.${kind}?${params.toString()}`;
+};
+export type PropertyExportSection =
+  "pages" | "queries" | "countries" | "devices" | "search_appearance";
 export const createSchedule = (
   reportId: number,
   body: {

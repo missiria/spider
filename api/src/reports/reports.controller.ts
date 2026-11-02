@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -28,7 +29,15 @@ import {
 } from 'class-validator';
 import { AuthUser } from '../auth/jwt.strategy';
 import { ScheduleFrequency } from './entities/report-schedule.entity';
-import { ReportsService } from './reports.service';
+import {
+  PROPERTY_EXPORT_SECTIONS,
+  PropertyExportFilters,
+  PropertyExportSection,
+  ReportsService,
+} from './reports.service';
+
+/** Rows in a property-table CSV (all rows the page loads); the PDF prints the first 50. */
+const PROPERTY_CSV_ROWS = 5000;
 
 class CreateReportDto {
   @IsString()
@@ -163,6 +172,56 @@ export class ReportsController {
     res.send(out.content);
   }
 
+  /**
+   * Property page exports (MISS-0171): the table on screen for the same period and filters,
+   * without a saved report. ?section=pages|queries|countries|devices|search_appearance plus the
+   * property page's own query (days | start+end, include/exclude_query|page, country, device).
+   */
+  @Get('property/:pid/export.csv')
+  async propertyCsv(
+    @Param('pid', ParseIntPipe) pid: number,
+    @Query() q: Record<string, string | undefined>,
+    @Res() res: Response,
+  ) {
+    const section = propertySection(q.section);
+    const data = await this.reports.propertyExport(
+      pid,
+      section,
+      periodOf(q),
+      filtersOf(q),
+      PROPERTY_CSV_ROWS,
+    );
+    const out = this.reports.csv(data, section);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${out.filename}"`,
+    );
+    res.send(out.content);
+  }
+
+  @Get('property/:pid/export.pdf')
+  async propertyPdf(
+    @Param('pid', ParseIntPipe) pid: number,
+    @Query() q: Record<string, string | undefined>,
+    @Res() res: Response,
+  ) {
+    const data = await this.reports.propertyExport(
+      pid,
+      propertySection(q.section),
+      periodOf(q),
+      filtersOf(q),
+      PROPERTY_CSV_ROWS,
+    );
+    const out = await this.reports.pdf(data);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${out.filename}"`,
+    );
+    res.send(out.buffer);
+  }
+
   @Get(':id/export.pdf')
   async pdf(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     const data = await this.reports.data(id);
@@ -207,4 +266,38 @@ export class ReportsController {
   sendNow(@Param('sid', ParseIntPipe) sid: number) {
     return this.reports.sendNow(sid);
   }
+}
+
+function propertySection(raw: string | undefined): PropertyExportSection {
+  if ((PROPERTY_EXPORT_SECTIONS as readonly string[]).includes(raw ?? ''))
+    return raw as PropertyExportSection;
+  throw new BadRequestException(
+    `section must be one of ${PROPERTY_EXPORT_SECTIONS.join(', ')}`,
+  );
+}
+
+function periodOf(q: Record<string, string | undefined>) {
+  const days = q.days ? Number(q.days) : undefined;
+  return {
+    days: days !== undefined && Number.isFinite(days) ? days : undefined,
+    start: q.start,
+    end: q.end,
+  };
+}
+
+function filtersOf(
+  q: Record<string, string | undefined>,
+): PropertyExportFilters {
+  const pick = (k: keyof PropertyExportFilters) =>
+    typeof q[k] === 'string' && q[k]!.trim()
+      ? q[k]!.trim().slice(0, 200)
+      : undefined;
+  return {
+    include_query: pick('include_query'),
+    exclude_query: pick('exclude_query'),
+    include_page: pick('include_page'),
+    exclude_page: pick('exclude_page'),
+    country: pick('country'),
+    device: pick('device'),
+  };
 }
