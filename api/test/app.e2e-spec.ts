@@ -43,6 +43,7 @@ const { UsersService } = require('../src/users/users.service');
 const { WorkspacesService } = require('../src/workspaces/workspaces.service');
 
 describe('Spider API (e2e)', () => {
+  afterEach(() => jest.useRealTimers()); // a test that pins Date never leaks it
   let app: INestApplication;
   let http: ReturnType<typeof request>;
   let token = '';
@@ -1155,7 +1156,27 @@ describe('Spider API (e2e)', () => {
         [propertyId],
       )
     )[0].d as string;
-    void end;
+    // The incremental window ends 3 days before "today": pin today to the fixtures (MISS-0173),
+    // faking Date only so HTTP, timers and the database driver keep running for real.
+    jest.useFakeTimers({
+      now: new Date(`${end}T12:00:00Z`).getTime() + 3 * 86_400_000,
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
 
     // 1. page cap hit on queries → partial, surfaced in API + health; query rows of the window kept
     const realQueryAll = gsc.queryAll.bind(gsc);
@@ -1268,6 +1289,7 @@ describe('Spider API (e2e)', () => {
       (await http.get('/settings/health').set(auth()).expect(200)).body
         .complete,
     ).toBe(true);
+    jest.useRealTimers();
   });
 
   it('dates, filters and saved views: controlled 400s and lossless round-trips', async () => {
