@@ -8,12 +8,13 @@ import {
   FileJson,
   FileSpreadsheet,
   FileText,
+  Sparkles,
 } from "lucide-react";
 
 export interface ExportMenuItem {
   key: string;
   label: string;
-  kind: "pdf" | "csv" | "copy" | "json";
+  kind: "pdf" | "csv" | "copy" | "ai" | "json";
   /** download / open link */
   href?: string;
   /** action (Copy) */
@@ -26,12 +27,13 @@ const ICONS = {
   pdf: FileText,
   csv: FileSpreadsheet,
   copy: Copy,
+  ai: Sparkles,
   json: FileJson,
 };
 
 /**
- * One Export menu per report view (MISS-0135): PDF, CSV per section, Copy per visible table,
- * JSON. A disclosure button + list of links/buttons: keyboard (Enter/Space, arrows, Escape)
+ * One Export menu per report view (MISS-0135): PDF, CSV per section, Copy per visible table
+ * (tab-separated or CSV), Copy for AI (whole report as Markdown, MISS-0166), JSON. A disclosure button + list of links/buttons: keyboard (Enter/Space, arrows, Escape)
  * and screen readers get the native semantics of each item.
  */
 export function ExportMenu({

@@ -222,3 +222,113 @@ export async function copyText(text: string): Promise<CopyResult> {
     area.remove();
   }
 }
+
+/** RFC 4180 cell: quoted when it holds a comma, quote, semicolon or line break. */
+function csvCell(text: string): string {
+  return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * Comma-separated text with a header row for the clipboard (MISS-0166): the same cells as the
+ * tab-separated copy, so the formula guard applies and blanks stay blank. LF line ends and no
+ * BOM: this is pasted text, not a file (the CSV file export adds both).
+ */
+export function toCsv(table: Pick<ExportTable, "columns" | "rows">): string {
+  const head = table.columns
+    .map((c) => csvCell(copyCell(c.label, "text")))
+    .join(",");
+  const body = table.rows.map((r) =>
+    r
+      .map((v, i) => csvCell(copyCell(v, table.columns[i]?.kind ?? "text")))
+      .join(","),
+  );
+  return [head, ...body].join("\n");
+}
+
+/** Markdown cell: pipes escaped, line breaks flattened. */
+function mdCell(text: string): string {
+  return text
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\|/g, "\\|")
+    .trim();
+}
+
+/**
+ * GitHub-flavoured Markdown table with the on-screen formatting (thousands separators, signed
+ * deltas, dashes for missing values): what a person or an AI assistant reads best.
+ */
+export function toMarkdown(
+  table: Pick<ExportTable, "columns" | "rows">,
+): string {
+  const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
+  const head = line(table.columns.map((c) => mdCell(c.label)));
+  const align = line(
+    table.columns.map((c) => (c.kind === "text" ? "---" : "---:")),
+  );
+  const body = table.rows.map((r) =>
+    line(
+      r.map((v, i) => mdCell(displayCell(v, table.columns[i]?.kind ?? "text"))),
+    ),
+  );
+  return [head, align, ...body].join("\n");
+}
+
+export const BRIEF_DEFINITIONS = [
+  "Clicks and impressions: Google Search Console web search totals for the period.",
+  "CTR: clicks ÷ impressions. Position: average ranking position, lower is better.",
+  "Δ and (previous): change against the comparison period; blank when no comparison rows are stored.",
+  "Rows are the ones this report returned (its row limit and filters apply). Nothing here is a confirmed cause or a Google penalty.",
+];
+
+/**
+ * The whole report as one Markdown document for an AI assistant or a document (MISS-0166):
+ * the context the PDF header prints, the notes, every non-empty table with its coverage note,
+ * and the metric definitions. Carries only what the report returned for this workspace.
+ */
+export function reportBrief(
+  data: ReportData,
+  tables: ExportTable[] = reportTables(data),
+): string {
+  const scope =
+    data.scope === "fleet"
+      ? "whole fleet"
+      : data.property
+        ? `${data.property.display_name} (${data.property.site_url})`
+        : "one property";
+  const lines = [
+    `# ${data.title}`,
+    "",
+    "- Source: Spider report on Google Search Console data (web search)",
+    `- Scope: ${scope}`,
+    `- Period: ${data.period.start} to ${data.period.end}`,
+    `- Compared with: ${data.previousPeriod.start} to ${data.previousPeriod.end}`,
+    `- GSC data through: ${data.data_through ?? "n/a"}`,
+    `- Generated: ${data.generated_at}`,
+  ];
+  if (data.notes?.trim()) lines.push("", "## Notes", "", data.notes.trim());
+  for (const t of tables) {
+    if (t.rows.length === 0) continue;
+    lines.push("", `## ${t.title}`, "");
+    if (t.note) lines.push(`_${mdCell(t.note)}_`, "");
+    lines.push(toMarkdown(t));
+  }
+  lines.push(
+    "",
+    "## Definitions",
+    "",
+    ...BRIEF_DEFINITIONS.map((d) => `- ${d}`),
+  );
+  return lines.join("\n") + "\n";
+}
+
+/** Row and table counts of the tables a brief prints (for the announcement). */
+export function briefStats(tables: ExportTable[]): {
+  tables: number;
+  rows: number;
+} {
+  const printed = tables.filter((t) => t.rows.length > 0);
+  return {
+    tables: printed.length,
+    rows: printed.reduce((n, t) => n + t.rows.length, 0),
+  };
+}

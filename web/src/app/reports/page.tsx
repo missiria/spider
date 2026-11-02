@@ -22,8 +22,11 @@ import {
   updateSchedule,
 } from "@/lib/api";
 import {
+  briefStats,
   copyText,
+  reportBrief,
   reportTables,
+  toCsv,
   toTsv,
   type ExportTable,
 } from "@/lib/exportTable";
@@ -261,14 +264,51 @@ function ReportCard({
     }
   };
 
-  const copyTable = async (t: ExportTable) => {
-    const res = await copyText(toTsv(t));
-    const message = res.ok
-      ? `${t.title}: ${t.rows.length} row${t.rows.length === 1 ? "" : "s"} copied with headers`
-      : `Could not copy ${t.title}. ${res.reason}`;
+  const report = (message: string, ok: boolean) => {
     setAnnounce(message);
-    if (res.ok) toast.success(message);
+    if (ok) toast.success(message);
     else toast.error(message);
+  };
+
+  /** Tab-separated (pastes as spreadsheet cells) or CSV text of one visible table. */
+  const copyTable = async (t: ExportTable, format: "tsv" | "csv" = "tsv") => {
+    const res = await copyText(format === "csv" ? toCsv(t) : toTsv(t));
+    const rows = `${t.rows.length} row${t.rows.length === 1 ? "" : "s"}`;
+    report(
+      res.ok
+        ? format === "csv"
+          ? `${t.title}: ${rows} copied as CSV with headers`
+          : `${t.title}: ${rows} copied with headers`
+        : `Could not copy ${t.title}. ${res.reason}`,
+      res.ok,
+    );
+  };
+
+  /** Whole report as Markdown for an AI assistant; loads the data when the preview is closed. */
+  const copyBrief = async () => {
+    let loaded = preview;
+    if (!loaded) {
+      try {
+        const data = await getReportData(r.id);
+        loaded = { data, tables: reportTables(data) };
+        setPreview(loaded);
+      } catch (err) {
+        report(`Could not load ${r.name}. ${errorMessage(err)}`, false);
+        return;
+      }
+    }
+    const stats = briefStats(loaded.tables);
+    if (stats.tables === 0) {
+      report(`${r.name} has no rows for this period; nothing to copy.`, false);
+      return;
+    }
+    const res = await copyText(reportBrief(loaded.data, loaded.tables));
+    report(
+      res.ok
+        ? `${r.name}: ${stats.tables} table${stats.tables === 1 ? "" : "s"}, ${stats.rows} rows copied as Markdown for AI tools`
+        : `Could not copy ${r.name}. ${res.reason}`,
+      res.ok,
+    );
   };
 
   const exportItems: ExportMenuItem[] = [
@@ -291,12 +331,30 @@ function ReportCard({
           .filter((t) => t.rows.length > 0)
           .map((t, i): ExportMenuItem => ({
             key: `copy-${i}`,
-            group: "Copy visible table",
+            group: "Copy visible table (tab-separated)",
             kind: "copy",
             label: t.title,
             onSelect: () => void copyTable(t),
           }))
       : []),
+    ...(previewOpen && preview
+      ? preview.tables
+          .filter((t) => t.rows.length > 0)
+          .map((t, i): ExportMenuItem => ({
+            key: `copy-csv-${i}`,
+            group: "Copy visible table (CSV)",
+            kind: "copy",
+            label: t.title,
+            onSelect: () => void copyTable(t, "csv"),
+          }))
+      : []),
+    {
+      key: "ai",
+      group: "Copy for AI",
+      kind: "ai",
+      label: "Whole report as Markdown",
+      onSelect: () => void copyBrief(),
+    },
     {
       key: "json",
       group: "Automation",
@@ -379,7 +437,8 @@ function ReportCard({
       </p>
       {!previewOpen && (
         <p className="mt-2 text-xs text-muted">
-          Copy is available for the tables shown in the preview.
+          Open the preview to copy single tables (tab-separated or CSV). Copy
+          for AI (whole report as Markdown) is in the Export menu at any time.
         </p>
       )}
       {previewOpen && loadingPreview && <Spinner label="Loading report…" />}
@@ -394,6 +453,8 @@ function ReportCard({
           tables={preview.tables}
           csvHref={(s) => reportExportUrl(r.id, "csv", s)}
           onCopy={(t) => void copyTable(t)}
+          onCopyCsv={(t) => void copyTable(t, "csv")}
+          onCopyBrief={() => void copyBrief()}
         />
       )}
       {showSchedule && (
@@ -577,9 +638,10 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
           <p className="mt-1 text-sm text-muted">
-            Reusable templates → preview, PDF, CSV, copy, JSON, and weekly or
-            monthly email schedules. Every export carries the period, the
-            previous period, data freshness and coverage notes.
+            Reusable templates → preview, PDF, CSV, copy (table or whole report
+            for AI), JSON, and weekly or monthly email schedules. Every export
+            carries the period, the previous period, data freshness and coverage
+            notes.
           </p>
         </div>
         <Button onClick={() => setCreating((v) => !v)}>

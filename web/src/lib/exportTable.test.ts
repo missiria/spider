@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  briefStats,
   copyCell,
   copyText,
   displayCell,
+  reportBrief,
   reportTables,
+  toCsv,
+  toMarkdown,
   toTsv,
 } from "./exportTable";
 import type { ReportData } from "./types";
@@ -146,6 +150,92 @@ describe("exportTable", () => {
     expect(toTsv(t[2])).toBe(
       "Priority\tFinding\tProperty\tConfidence\nhigh\tClicks drop\ta.com\thigh",
     );
+  });
+
+  it("copies the visible table as CSV: headers, quoting, formula guard, blanks (MISS-0166)", () => {
+    const queries = reportTables(base)[1];
+    expect(toCsv(queries)).toBe(
+      [
+        "Query,Clicks,Impressions,CTR,Position",
+        "iptv spain,120,4000,3.00%,3.2",
+        '"\'=HYPERLINK(""http://evil"")",3,90,3.33%,8.0',
+        "'-cheap iptv,1,10,10.00%,12.5",
+      ].join("\n"),
+    );
+    const withComma = {
+      columns: [
+        { label: "Page", kind: "text" as const },
+        { label: "Clicks", kind: "int" as const },
+      ],
+      rows: [
+        ["/a,b;c", 1],
+        ['say "hi"', null],
+      ],
+    };
+    expect(toCsv(withComma)).toBe('Page,Clicks\n"/a,b;c",1\n"say ""hi""",');
+    expect(toCsv(withComma)).not.toMatch(/^\uFEFF/);
+    const overview = reportTables({
+      ...base,
+      overview: { ...base.overview!, comparison_available: false },
+    })[0];
+    expect(toCsv(overview).split("\n")[1]).toBe("Clicks,1234,,");
+  });
+
+  it("renders a Markdown table with the on-screen formats, aligned numbers and escaped pipes", () => {
+    const t = {
+      columns: [
+        { label: "Query", kind: "text" as const },
+        { label: "Clicks", kind: "int" as const },
+        { label: "Δ", kind: "delta" as const },
+      ],
+      rows: [
+        ["a | b", 1234, 0.234],
+        ["line\nbreak", null, null],
+      ],
+    };
+    expect(toMarkdown(t)).toBe(
+      [
+        "| Query | Clicks | Δ |",
+        "| --- | ---: | ---: |",
+        "| a \\| b | 1,234 | +23% |",
+        "| line break | — | — |",
+      ].join("\n"),
+    );
+  });
+
+  it("writes the whole report as a Markdown brief for AI tools", () => {
+    const data: ReportData = {
+      ...base,
+      notes: "  Client asked about Spain.  ",
+      tables: [
+        ...base.tables,
+        {
+          section: "pages",
+          title: "Top pages",
+          keyLabel: "Page",
+          note: null,
+          rows: [],
+        },
+      ],
+    };
+    const md = reportBrief(data);
+    const lines = md.split("\n");
+    expect(lines[0]).toBe("# Monthly");
+    expect(md).toContain("- Scope: example.com (https://example.com/)");
+    expect(md).toContain("- Period: 2026-09-21 to 2026-10-18");
+    expect(md).toContain("- Compared with: 2026-08-24 to 2026-09-20");
+    expect(md).toContain("- GSC data through: 2026-10-18");
+    expect(md).toContain("## Notes\n\nClient asked about Spain.");
+    expect(md).toContain("## Overview\n\n| Metric | Current | Previous | Δ |");
+    expect(md).toContain(
+      "## Top queries\n\n_query rows explain 55% of clicks_\n\n| Query | Clicks |",
+    );
+    expect(md).not.toContain("## Top pages"); // empty tables are skipped
+    expect(md).toContain("## Definitions\n\n- Clicks and impressions");
+    expect(md.endsWith("\n")).toBe(true);
+    expect(briefStats(reportTables(data))).toEqual({ tables: 2, rows: 7 });
+    const fleet = reportBrief({ ...base, scope: "fleet", property: null });
+    expect(fleet).toContain("- Scope: whole fleet");
   });
 
   it("copyCell handles empty and non-numeric values", () => {

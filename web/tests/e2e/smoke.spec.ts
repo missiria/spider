@@ -117,7 +117,7 @@ test.describe("Spider smoke", () => {
     await expect(page.locator("ol li").first()).toContainText("e2e note");
   });
 
-  test("reports page creates a template, previews it, copies a table and exports PDF/CSV/JSON", async ({
+  test("reports page creates a template, previews it, copies a table (TSV, CSV), the report for AI, and exports PDF/CSV/JSON", async ({
     page,
     context,
     baseURL,
@@ -167,6 +167,32 @@ test.describe("Spider smoke", () => {
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     expect(clip.split("\n")[0]).toMatch(/^Site\tClicks\tClicks \(previous\)/);
     expect(clip.split("\n")).toHaveLength(rows + 1);
+
+    // Copy CSV: same table, comma separated (MISS-0166)
+    await page
+      .getByRole("button", { name: "Copy Per property as CSV" })
+      .click();
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "copied as CSV with headers" }),
+    ).toHaveCount(1);
+    const csv = await page.evaluate(() => navigator.clipboard.readText());
+    expect(csv.split("\n")[0]).toMatch(/^Site,Clicks,Clicks \(previous\)/);
+    expect(csv.split("\n")).toHaveLength(rows + 1);
+
+    // Copy for AI: the whole report as Markdown
+    await page
+      .getByRole("button", { name: "Copy report for AI as Markdown" })
+      .click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "as Markdown for AI tools" }),
+    ).toHaveCount(1);
+    const md = await page.evaluate(() => navigator.clipboard.readText());
+    expect(md.startsWith(`# ${name}\n`)).toBe(true);
+    expect(md).toContain("- Scope: whole fleet");
+    expect(md).toContain("| Site | Clicks | Clicks (previous) |");
+    expect(md).toContain("## Definitions");
 
     const pdf = await page.request.get(pdfHref);
     expect(pdf.status()).toBe(200);
