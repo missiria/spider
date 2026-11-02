@@ -59,7 +59,8 @@ function makeService(opts: {
     fakeRepo(log) as never,
     fakeRepo(log) as never,
     fakeRepo(log, opts.runSave) as never,
-    opts.gsc as never,
+    // outside GSC_MOCK the window end is today − 3; fakes may override latestFixtureDate
+    { latestFixtureDate: () => null, ...opts.gsc } as never,
     { save: async (p: Property) => (saved.push({ ...p }), p) } as never,
     new ConfigService({
       GSC_DIMENSION_BACKFILL_DAYS: '10',
