@@ -105,9 +105,19 @@ export class SyncService implements OnModuleInit {
     }
   }
 
+  /**
+   * Last day a window may end on: today − 3 (GSC lag), capped to the recorded fixtures in
+   * GSC_MOCK mode so dev and test windows never drift past the data as the calendar moves.
+   */
+  private endDate(): string {
+    const end = defaultEndDate();
+    const fixture = this.gsc.latestFixtureDate();
+    return fixture && fixture < end ? fixture : end;
+  }
+
   /** Full history: 16 months of daily totals + N days of every dimension. */
   backfill(property: Property): Promise<SyncRun> {
-    const end = defaultEndDate();
+    const end = this.endDate();
     return this.run(property, 'backfill', {
       daily: { start: addDays(end, -(BACKFILL_DAYS - 1)), end },
       dimensions: periodEndingOn(end, this.dimensionBackfillDays),
@@ -117,7 +127,7 @@ export class SyncService implements OnModuleInit {
 
   /** Last 10 days for everything; cheap, run daily. */
   incremental(property: Property): Promise<SyncRun> {
-    const end = defaultEndDate();
+    const end = this.endDate();
     const window = periodEndingOn(end, INCREMENTAL_DAYS);
     return this.run(property, 'incremental', {
       daily: window,

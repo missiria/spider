@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google, searchconsole_v1 } from 'googleapis';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export interface GscSite {
@@ -43,6 +43,7 @@ export class GscService {
   private readonly logger = new Logger(GscService.name);
   private client: searchconsole_v1.Searchconsole | null = null;
   private serviceAccountEmail: string | null = null;
+  private latestFixture: string | null | undefined;
   private readonly mock: boolean;
   private readonly fixturesDir: string;
   /** Minimum spacing between live calls (ms); 1,200 QPM per site is the Google limit. */
@@ -63,6 +64,35 @@ export class GscService {
 
   isMock(): boolean {
     return this.mock;
+  }
+
+  /**
+   * Mock mode only: the latest date present in the recorded daily fixtures, so sync windows
+   * stay inside recorded data whatever the wall clock says. null outside mock mode.
+   */
+  latestFixtureDate(): string | null {
+    if (!this.mock) {
+      return null;
+    }
+    if (this.latestFixture !== undefined) {
+      return this.latestFixture;
+    }
+    let max: string | null = null;
+    const dir = resolve(this.fixturesDir, 'daily');
+    if (existsSync(dir)) {
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith('.json')) continue;
+        const data = this.readFixture<{ rows?: { keys?: string[] }[] }>(
+          `daily/${file}`,
+        );
+        for (const row of data?.rows ?? []) {
+          const d = row.keys?.[0];
+          if (d && (!max || d > max)) max = d;
+        }
+      }
+    }
+    this.latestFixture = max;
+    return max;
   }
 
   /** Email the client must add as a GSC user (Settings → Users and permissions). */
