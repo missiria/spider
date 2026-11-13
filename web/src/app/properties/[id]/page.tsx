@@ -20,6 +20,7 @@ import {
   Search,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { CountryMap } from "@/components/CountryMap";
 import { ExportMenu, type ExportMenuItem } from "@/components/ExportMenu";
 import { copyText, toTsv, topRowsTable } from "@/lib/exportTable";
 import { PeriodPicker } from "@/components/PeriodPicker";
@@ -269,6 +270,7 @@ function TopTable({
   selected,
   onSelect,
   exportFor,
+  visualization,
 }: {
   title: string;
   breakdown: DimensionBreakdown | undefined;
@@ -284,6 +286,7 @@ function TopTable({
   incomplete?: boolean;
   selected?: string[];
   onSelect?: (key: string) => void;
+  visualization?: React.ReactNode;
 }) {
   const rows = useMemo(() => toRows(breakdown), [breakdown]);
   const [state, setState] = useState<TopTableState>(DEFAULT_TOP_STATE);
@@ -359,7 +362,7 @@ function TopTable({
     ) : null;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <div>
           <h2 className="font-medium">
@@ -451,6 +454,7 @@ function TopTable({
         </div>
       </div>
       {regexBar}
+      {visualization}
       {rows.length === 0 ? (
         <div className="px-4 py-8 text-center text-sm text-muted">
           {breakdown?.filters
@@ -996,21 +1000,32 @@ export default function PropertyPage() {
           incomplete={unreliable("query")}
           exportFor={exportFor}
         />
-        <div className="grid gap-6 xl:grid-cols-3">
-          <TopTable
-            title="Countries"
-            breakdown={data.breakdowns.country}
-            kind="country"
-            host={hostOf(p.site_url)}
-            incomplete={unreliable("country")}
-            exportFor={exportFor}
-            selected={splitKeys(filters.country)}
-            onSelect={(k) =>
-              setFilters({
-                country: toggleKey(filters.country, k.toLowerCase()),
-              })
-            }
-          />
+        <TopTable
+          title="Countries"
+          breakdown={data.breakdowns.country}
+          kind="country"
+          host={hostOf(p.site_url)}
+          incomplete={unreliable("country")}
+          exportFor={exportFor}
+          selected={splitKeys(filters.country)}
+          onSelect={(k) =>
+            setFilters({
+              country: toggleKey(filters.country, k.toLowerCase()),
+            })
+          }
+          visualization={
+            <CountryMap
+              rows={data.breakdowns.country?.rows ?? []}
+              selected={splitKeys(filters.country)}
+              onSelect={(k) =>
+                setFilters({
+                  country: toggleKey(filters.country, k.toLowerCase()),
+                })
+              }
+            />
+          }
+        />
+        <div className="grid min-w-0 gap-6 lg:grid-cols-2">
           <TopTable
             title="Devices"
             breakdown={data.breakdowns.device}
