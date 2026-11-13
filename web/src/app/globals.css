@@ -93,6 +93,16 @@ body {
   color: var(--foreground);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .spider-logo {
+    filter: brightness(0) invert(1);
+  }
+}
+
+:root[data-theme="dark"] .spider-logo {
+  filter: brightness(0) invert(1);
+}
+
 input,
 select,
 textarea {

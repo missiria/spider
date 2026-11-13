@@ -3,8 +3,19 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, FileText, Globe2, Inbox, LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
+import {
+  Activity,
+  FileText,
+  Globe2,
+  Inbox,
+  LayoutDashboard,
+  LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+} from "lucide-react";
 import { endSession } from "@/lib/api";
+import { SpiderLogo } from "@/components/SpiderLogo";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
@@ -59,11 +70,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={`sticky top-0 flex h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 ${collapsed ? "w-14" : "w-56"}`}
         aria-label="Sidebar"
       >
-        <div className={`flex h-14 items-center border-b border-border ${collapsed ? "justify-center" : "justify-between px-4"}`}>
+        <div
+          className={`flex h-14 items-center border-b border-border ${collapsed ? "justify-center" : "justify-between px-4"}`}
+        >
           {!collapsed && (
-            <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-              <span className="inline-block h-6 w-6 rounded-md bg-primary" aria-hidden />
-              Spider
+            <Link
+              href="/"
+              className="flex items-center gap-2 font-semibold tracking-tight"
+            >
+              <SpiderLogo />
             </Link>
           )}
           <button
@@ -77,9 +92,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ToggleIcon className="h-4 w-4" aria-hidden />
           </button>
         </div>
-        <nav className={`flex flex-1 flex-col gap-1 text-sm ${collapsed ? "items-center p-2" : "p-3"}`} aria-label="Main">
+        <nav
+          className={`flex flex-1 flex-col gap-1 text-sm ${collapsed ? "items-center p-2" : "p-3"}`}
+          aria-label="Main"
+        >
           {NAV.map(({ href, label, icon: Icon }) => {
-            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+            const active =
+              href === "/" ? pathname === "/" : pathname.startsWith(href);
             return (
               <Link
                 key={href}
@@ -87,7 +106,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 aria-current={active ? "page" : undefined}
                 title={collapsed ? label : undefined}
                 className={`flex items-center gap-3 rounded-md transition-colors ${collapsed ? "justify-center p-2" : "px-3 py-2"} ${
-                  active ? "bg-primary-soft font-medium text-primary" : "text-muted hover:bg-surface-muted hover:text-foreground"
+                  active
+                    ? "bg-primary-soft font-medium text-primary"
+                    : "text-muted hover:bg-surface-muted hover:text-foreground"
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden />
@@ -97,7 +118,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className={`border-t border-border ${collapsed ? "flex justify-center p-2" : "p-3"}`}>
+        <div
+          className={`border-t border-border ${collapsed ? "flex justify-center p-2" : "p-3"}`}
+        >
           <button
             type="button"
             onClick={logout}

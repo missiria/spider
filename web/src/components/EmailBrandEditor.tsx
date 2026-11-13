@@ -127,7 +127,7 @@ export function EmailBrandEditor() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <main className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
       <div>
         <Link href="/system" className="text-sm text-muted">
           ← System
@@ -291,6 +291,6 @@ export function EmailBrandEditor() {
           </div>
         </Card>
       )}
-    </div>
+    </main>
   );
 }

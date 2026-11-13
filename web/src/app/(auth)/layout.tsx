@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SocialLinks } from "@/components/SocialLinks";
-import { SpiderMark, SpiderWeb } from "@/components/auth/SpiderWeb";
+import { SpiderWeb } from "@/components/auth/SpiderWeb";
+import { SpiderLogo } from "@/components/SpiderLogo";
 
 /**
  * Shared by /login, /register, /forgot-password and /reset-password. Being a layout, it stays
@@ -18,8 +19,7 @@ export default function AuthLayout({
           href="/login"
           className="flex items-center gap-2.5 text-lg font-semibold lg:hidden"
         >
-          <SpiderMark />
-          Spider
+          <SpiderLogo />
         </Link>
         <div className="flex flex-1 items-center justify-center py-10">
           <div className="w-full max-w-sm">{children}</div>
@@ -35,8 +35,7 @@ export default function AuthLayout({
           href="/login"
           className="relative z-10 flex items-center gap-2.5 text-lg font-semibold text-white"
         >
-          <SpiderMark />
-          Spider
+          <SpiderLogo inverse />
         </Link>
         <SpiderWeb className="pointer-events-none absolute top-1/2 left-1/2 w-[min(108%,760px)] -translate-x-1/2 -translate-y-[60%]" />
         {/* lets the headline sit on clean ink instead of on the threads */}
