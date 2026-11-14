@@ -963,6 +963,31 @@ export default function PropertyPage() {
 
       <div className="mt-6 flex flex-col gap-6">
         <TopTable
+          title="Countries"
+          breakdown={data.breakdowns.country}
+          kind="country"
+          host={hostOf(p.site_url)}
+          incomplete={unreliable("country")}
+          exportFor={exportFor}
+          selected={splitKeys(filters.country)}
+          onSelect={(k) =>
+            setFilters({
+              country: toggleKey(filters.country, k.toLowerCase()),
+            })
+          }
+          visualization={
+            <CountryMap
+              rows={data.breakdowns.country?.rows ?? []}
+              selected={splitKeys(filters.country)}
+              onSelect={(k) =>
+                setFilters({
+                  country: toggleKey(filters.country, k.toLowerCase()),
+                })
+              }
+            />
+          }
+        />
+        <TopTable
           title={`Top pages · ${data.period.start} → ${data.period.end}`}
           breakdown={data.breakdowns.page}
           kind="page"
@@ -999,31 +1024,6 @@ export default function PropertyPage() {
           }
           incomplete={unreliable("query")}
           exportFor={exportFor}
-        />
-        <TopTable
-          title="Countries"
-          breakdown={data.breakdowns.country}
-          kind="country"
-          host={hostOf(p.site_url)}
-          incomplete={unreliable("country")}
-          exportFor={exportFor}
-          selected={splitKeys(filters.country)}
-          onSelect={(k) =>
-            setFilters({
-              country: toggleKey(filters.country, k.toLowerCase()),
-            })
-          }
-          visualization={
-            <CountryMap
-              rows={data.breakdowns.country?.rows ?? []}
-              selected={splitKeys(filters.country)}
-              onSelect={(k) =>
-                setFilters({
-                  country: toggleKey(filters.country, k.toLowerCase()),
-                })
-              }
-            />
-          }
         />
         <div className="grid min-w-0 gap-6 lg:grid-cols-2">
           <TopTable
