@@ -5,10 +5,12 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { ExternalLink } from "lucide-react";
+import { AiPromptButton } from "@/components/AiPromptButton";
 import { AppShell } from "@/components/AppShell";
 import { Button, Card, DeltaBadge, ErrorBox, KpiCard, Spinner } from "@/components/ui";
 import { errorMessage, getOpportunity, getProperties, listUsers, updateOpportunity } from "@/lib/api";
 import { formatDateTime, formatInt, formatPct, formatPosition } from "@/lib/format";
+import { VARIANT_LABELS, type PromptVariant } from "@/lib/aiPrompt";
 import { confidenceLabel, PRIORITY_LABELS, priorityTone, RULE_LABELS, STATUS_LABELS, statusTone, subjectLabel } from "@/lib/opportunities";
 import type { MetricTotals, OpportunityDetail, OpportunityEvent, OpportunityPriority, OpportunityStatus, PropertyRow, User } from "@/lib/types";
 
@@ -30,6 +32,10 @@ function describeEvent(e: OpportunityEvent, users: Map<number, string>): string 
       return `${who} set the due date to ${p.to ? String(p.to) : "none"}`;
     case "note":
       return `${who}: ${String(p.text)}`;
+    case "ai_prompt_copied":
+      return `${who} copied the AI prompt (${VARIANT_LABELS[p.variant as PromptVariant] ?? "prompt"}, ${String(p.lang ?? "en").toUpperCase()})`;
+    default:
+      return `${who}: ${String(e.type)}`;
   }
 }
 
@@ -187,6 +193,7 @@ export default function OpportunityPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <AiPromptButton opportunity={data} property={property} users={userMap} />
           {data.status !== "done" && <Button onClick={() => patch({ status: "done" })} disabled={busy}>Mark done</Button>}
           {data.status !== "dismissed" && <Button variant="secondary" onClick={() => patch({ status: "dismissed" })} disabled={busy}>Dismiss</Button>}
           {(data.status === "done" || data.status === "dismissed") && <Button variant="secondary" onClick={() => patch({ status: "open" })} disabled={busy}>Reopen</Button>}

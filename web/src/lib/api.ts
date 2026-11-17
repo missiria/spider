@@ -244,6 +244,15 @@ export const updateOpportunity = (
     .patch<OpportunityDetail>(`/opportunities/${id}`, body)
     .then((r) => r.data);
 
+/** Usage trace for "Copy AI prompt" (MISS-0190): one history line, no response body. */
+export const logPromptCopied = (
+  id: number,
+  body: { variant: "explain" | "ticket" | "brief"; lang: "en" | "fr" },
+) =>
+  api
+    .post<void>(`/opportunities/${id}/prompt-copied`, body)
+    .then(() => undefined);
+
 export const scanOpportunities = () =>
   api
     .post<{

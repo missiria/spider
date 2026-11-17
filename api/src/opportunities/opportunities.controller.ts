@@ -54,6 +54,17 @@ class UpdateOpportunityDto {
   note?: string;
 }
 
+const PROMPT_VARIANTS = ['explain', 'ticket', 'brief'] as const;
+const PROMPT_LANGS = ['en', 'fr'] as const;
+
+class PromptCopiedDto {
+  @IsIn(PROMPT_VARIANTS as unknown as string[])
+  variant: (typeof PROMPT_VARIANTS)[number];
+
+  @IsIn(PROMPT_LANGS as unknown as string[])
+  lang: (typeof PROMPT_LANGS)[number];
+}
+
 @Controller('opportunities')
 export class OpportunitiesController {
   constructor(private readonly opportunities: OpportunitiesService) {}
@@ -105,5 +116,16 @@ export class OpportunitiesController {
     @Body() body: UpdateOpportunityDto,
   ) {
     return this.opportunities.update(id, req.user.userId, body);
+  }
+
+  /** MISS-0190: usage trace when the web app copies the AI prompt of an opportunity. */
+  @Post(':id/prompt-copied')
+  @HttpCode(204)
+  promptCopied(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: { user: AuthUser },
+    @Body() body: PromptCopiedDto,
+  ) {
+    return this.opportunities.promptCopied(id, req.user.userId, body);
   }
 }

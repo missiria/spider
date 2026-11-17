@@ -534,6 +534,19 @@ export class OpportunitiesService {
     return this.get(id);
   }
 
+  /** MISS-0190: history line "AI prompt copied"; the prompt itself is built in the browser. */
+  async promptCopied(
+    id: number,
+    userId: number,
+    input: { variant: string; lang: string },
+  ): Promise<void> {
+    await this.find(id);
+    await this.log(id, userId, 'ai_prompt_copied', {
+      variant: input.variant,
+      lang: input.lang,
+    });
+  }
+
   private async find(id: number): Promise<Opportunity> {
     const ws = await this.workspaces.current();
     const opp = await this.repo.findOne({ where: { id, workspace_id: ws.id } });

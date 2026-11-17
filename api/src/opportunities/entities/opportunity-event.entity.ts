@@ -16,7 +16,8 @@ export type OpportunityEventType =
   | 'priority'
   | 'assignee'
   | 'due_date'
-  | 'note';
+  | 'note'
+  | 'ai_prompt_copied';
 
 /** Append-only audit history; completed and dismissed items keep every event. */
 @Entity('opportunity_events')
@@ -46,11 +47,12 @@ export class OpportunityEvent {
       'assignee',
       'due_date',
       'note',
+      'ai_prompt_copied',
     ],
   })
   type: OpportunityEventType;
 
-  /** JSON: { from, to } for field changes, { text } for notes, { score, summary } for evidence */
+  /** JSON: { from, to } for field changes, { text } for notes, { score, summary } for evidence, { variant, lang } for ai_prompt_copied */
   @Column({ type: 'text', nullable: true })
   payload: string | null;
 

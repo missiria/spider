@@ -259,7 +259,8 @@ export interface OpportunityEvent {
     | "priority"
     | "assignee"
     | "due_date"
-    | "note";
+    | "note"
+    | "ai_prompt_copied";
   payload: Record<string, unknown> | null;
   created_at: string;
 }

@@ -1,0 +1,19 @@
+import { cannibalization } from "./cannibalization";
+import { clicksDrop } from "./clicksDrop";
+import { generic } from "./generic";
+import { impressionsDrop } from "./impressionsDrop";
+import { lowCtr } from "./lowCtr";
+import { nearPageOne } from "./nearPageOne";
+import type { RuleTemplate } from "./types";
+
+const TEMPLATES = new Map<string, RuleTemplate>([
+  ["clicks_drop", clicksDrop],
+  ["impressions_drop", impressionsDrop],
+  ["low_ctr", lowCtr],
+  ["near_page_one", nearPageOne],
+  ["cannibalization", cannibalization],
+]);
+
+export function ruleTemplate(rule: string): RuleTemplate {
+  return TEMPLATES.get(rule) ?? generic;
+}

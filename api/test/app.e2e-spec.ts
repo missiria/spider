@@ -352,6 +352,30 @@ describe('Spider API (e2e)', () => {
       .set(auth())
       .send({ status: 'bogus' })
       .expect(400);
+    // MISS-0190: copying the AI prompt leaves one history line
+    await http
+      .post(`/opportunities/${id}/prompt-copied`)
+      .set(auth())
+      .send({ variant: 'ticket', lang: 'fr' })
+      .expect(204);
+    await http
+      .post(`/opportunities/${id}/prompt-copied`)
+      .set(auth())
+      .send({ variant: 'bogus', lang: 'fr' })
+      .expect(400);
+    await http
+      .post('/opportunities/999999/prompt-copied')
+      .set(auth())
+      .send({ variant: 'explain', lang: 'en' })
+      .expect(404);
+    const traced = await http
+      .get(`/opportunities/${id}`)
+      .set(auth())
+      .expect(200);
+    expect(traced.body.events.at(-1)).toMatchObject({
+      type: 'ai_prompt_copied',
+      payload: { variant: 'ticket', lang: 'fr' },
+    });
     const done = await http
       .patch(`/opportunities/${id}`)
       .set(auth())
@@ -901,6 +925,11 @@ describe('Spider API (e2e)', () => {
       .patch(`/opportunities/${oppA.id}`)
       .set(asB)
       .send({ status: 'dismissed' })
+      .expect(404);
+    await http
+      .post(`/opportunities/${oppA.id}/prompt-copied`)
+      .set(asB)
+      .send({ variant: 'explain', lang: 'en' })
       .expect(404);
     await http.post(`/properties/${propertyId}/sync`).set(asB).expect(404);
     await http.post(`/properties/${propertyId}/check`).set(asB).expect(404);
