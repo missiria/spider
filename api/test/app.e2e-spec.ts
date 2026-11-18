@@ -899,18 +899,19 @@ describe('Spider API (e2e)', () => {
           c.coverage_state === 'Not found (404)',
       ),
     ).toMatchObject({ urls: 1, verdict: 'FAIL' });
-    // sitemap URLs Google does not index become findings; the on-demand URL is not in a sitemap
+    // sitemap URLs Google does not index become ONE finding per coverage state
     await http.post('/opportunities/scan').set(auth()).expect(200);
     const notIndexed = (await opps()).filter(
       (o) => o.rule === 'submitted_not_indexed',
     );
     expect(notIndexed.map((o) => o.key_text).sort()).toEqual([
-      `${SITE}blog/lista-de-canales/`,
-      `${SITE}producto/plan-anual-old/`,
+      'Sitemap URLs · Crawled - currently not indexed',
+      'Sitemap URLs · Not found (404)',
     ]);
     expect(notIndexed[0].evidence).toMatchObject({
       source: 'url_inspection_api',
-      sitemap: `${SITE}sitemap.xml`,
+      pages: 1,
+      sitemaps: [`${SITE}sitemap.xml`],
     });
     const notFoundUrls = await http
       .get(
@@ -988,8 +989,10 @@ describe('Spider API (e2e)', () => {
       previous_indexed: 850,
     });
     expect(row.running).toBe(false);
-    // automatic totals of the fleet table: 1 "Not found (404)" + 1 "Crawled - currently not indexed"
-    expect(row.live).toMatchObject({ indexed: 4, critical: 2 });
+    // automatic totals of the fleet table; every not-indexed state of the fixtures is critical
+    // (404, crawled-not-indexed, unknown to Google)
+    expect(row.live.indexed).toBe(4);
+    expect(row.live.critical).toBe(row.live.not_indexed);
     expect(row.live.not_indexed).toBe(row.tracked_urls - 4);
     expect(
       fleet.body.reasons.find(
@@ -1010,12 +1013,28 @@ describe('Spider API (e2e)', () => {
     expect(lines[0]).toBe(
       'site,view,report_date,source,completeness,row_type,group,reason,reason_source,classification,validation,pages,pages_previous_report,first_seen_in_spider',
     );
-    expect(lines).toHaveLength(1 + 2 + 6);
-    for (const l of lines.slice(1)) {
+    // imported report rows, then the automatic (URL Inspection) rows: each row says which
+    const imported = lines
+      .slice(1)
+      .filter((l) => l.includes(',All known pages,'));
+    const automatic = lines
+      .slice(1)
+      .filter((l) => l.includes(',Tracked URLs (automatic),'));
+    expect(imported).toHaveLength(2 + 6);
+    expect(automatic.length).toBeGreaterThan(2);
+    expect(imported.length + automatic.length).toBe(lines.length - 1);
+    for (const l of imported) {
       expect(l).toContain(`${SITE},All known pages,2026-11-13,`);
       expect(l).toMatch(/uploaded export/);
       expect(l).toMatch(/capped at 1,000 rows/);
     }
+    for (const l of automatic) {
+      expect(l).toMatch(/Google URL Inspection API \(automatic\)/);
+      expect(l).toMatch(/tracked URLs inspected/);
+    }
+    expect(automatic.some((l) => /,total,indexed,Indexed,,,,4,,/.test(l))).toBe(
+      true,
+    );
     expect(
       lines.some((l) => /,total,indexed,Indexed,,,,845,850,/.test(l)),
     ).toBe(true);

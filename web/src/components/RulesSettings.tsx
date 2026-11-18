@@ -50,9 +50,9 @@ const FIELDS: Record<keyof Omit<RuleConfig, "window_days" | "regression_days">, 
     fields: { min_previous_indexed: { label: "Min. previous indexed" }, drop_ratio: { label: "Drop at least", pct: true } },
   },
   submitted_not_indexed: {
-    title: "Sitemap URL not indexed",
-    blurb: "A sitemap URL whose latest URL Inspection says it is not indexed.",
-    fields: { max_items: { label: "Max. items per property" } },
+    title: "Sitemap URLs not indexed",
+    blurb: "Sitemap URLs whose latest URL Inspection says they are not indexed, grouped by Google's reason: one finding per reason and property.",
+    fields: { min_urls: { label: "Min. URLs per reason" } },
   },
   indexing_persistent: {
     title: "Indexing issue not fixed",

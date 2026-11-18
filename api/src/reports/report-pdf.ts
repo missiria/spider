@@ -255,14 +255,14 @@ export function buildReportDocument(
     if (many) {
       content.push(
         dataTable(
-          ['Property', 'Report date', 'Indexed', 'Not indexed', 'Inspected'],
+          ['Property', 'Last update', 'Indexed', 'Not indexed', 'Inspected'],
+          // automatic numbers (URL Inspection); the imported report, when there is one, is
+          // detailed per property below
           data.indexing.blocks.map((b) => [
             pdfText(b.property.display_name),
-            b.report_date
-              ? `${b.report_date}${b.stale ? ' (stale)' : ''}`
-              : 'no report',
-            b.totals?.indexed == null ? '—' : fmtInt(b.totals.indexed),
-            b.totals?.not_indexed == null ? '—' : fmtInt(b.totals.not_indexed),
+            b.live?.last_update ?? 'not inspected',
+            b.live ? fmtInt(b.live.indexed) : '—',
+            b.live ? fmtInt(b.live.not_indexed) : '—',
             `${fmtInt(b.inspection.inspected_urls)} / ${fmtInt(b.inspection.tracked_urls)}`,
           ]),
           ['*', 'auto', 'auto', 'auto', 'auto'],
@@ -270,8 +270,57 @@ export function buildReportDocument(
       );
     }
     for (const b of data.indexing.blocks) {
-      // fleet reports detail only the properties that have a report
-      if (many && !b.report_date) continue;
+      // fleet reports detail only the properties that have data
+      if (many && !b.report_date && !b.live) continue;
+      if (b.live) {
+        content.push({
+          text: pdfText(
+            many
+              ? `${b.property.display_name} · Automatic (URL Inspection)`
+              : 'Automatic view (URL Inspection)',
+          ),
+          style: 'h3',
+        });
+        content.push({
+          text: pdfText(
+            `Source: ${b.live.source} · Last update: ${b.live.last_update} · Completeness: ${b.live.completeness}`,
+          ),
+          style: 'muted',
+        });
+        content.push(
+          dataTable(
+            ['Pages', 'Count'],
+            [
+              ['Indexed', fmtInt(b.live.indexed)],
+              ['Not indexed', fmtInt(b.live.not_indexed)],
+            ],
+            ['*', 'auto'],
+          ),
+        );
+        if (b.live.reasons.length)
+          content.push(
+            dataTable(
+              [
+                'Why pages are not indexed',
+                'Source',
+                'Classification',
+                'Pages',
+              ],
+              b.live.reasons
+                .slice(0, PDF_TABLE_ROWS)
+                .map((r) => [
+                  pdfText(r.reason),
+                  r.source,
+                  r.intent === 'likely_defect'
+                    ? 'critical'
+                    : r.intent.replace('_', ' '),
+                  fmtInt(r.pages),
+                ]),
+              ['*', 'auto', 'auto', 'auto'],
+            ),
+          );
+      }
+      if (!b.report_date) continue;
       content.push({
         text: pdfText(
           many ? `${b.property.display_name} · ${b.view}` : `View: ${b.view}`,

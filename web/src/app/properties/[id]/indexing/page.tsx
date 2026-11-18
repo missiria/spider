@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import { ExternalLink, RefreshCw, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { GscReport } from "@/components/indexing/GscReport";
-import { Banner, Crumbs, SourceNote, tdCls, thCls } from "@/components/indexing/parts";
+import { Banner, Crumbs, SourceNote, tdCls, thCls, VerdictChip } from "@/components/indexing/parts";
 import { Button, Card, ErrorBox, KpiCard, Spinner } from "@/components/ui";
 import { deleteIndexingImport, errorMessage, getPropertyIndexing, propertyExportUrl, refreshIndexing, uploadIndexingExport } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt } from "@/lib/format";
@@ -334,7 +334,7 @@ export default function PropertyIndexingPage() {
                               {c.coverage_state}
                             </Link>
                           </td>
-                          <td className={`${tdCls} text-muted`}>{c.verdict ?? "—"}</td>
+                          <td className={tdCls}><VerdictChip verdict={c.verdict} /></td>
                           <td className={`${tdCls} tabular text-right`}>{formatInt(c.urls)}</td>
                         </tr>
                       ))}

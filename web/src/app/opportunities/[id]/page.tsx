@@ -80,7 +80,7 @@ function IndexingEvidence({ o }: { o: OpportunityDetail }) {
         {ev.inspected_at && <> · inspected <span className="tabular">{String(ev.inspected_at).slice(0, 10)}</span></>}
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {typeof ev.pages === "number" && <KpiCard label="Affected pages" value={formatInt(ev.pages)} hint={typeof ev.previous_pages === "number" ? `prev ${formatInt(ev.previous_pages)}` : undefined} />}
+        {typeof ev.pages === "number" && <KpiCard label={ev.source === "url_inspection_api" ? "Sitemap URLs" : "Affected pages"} value={formatInt(ev.pages)} hint={typeof ev.previous_pages === "number" ? `prev ${formatInt(ev.previous_pages)}` : undefined} />}
         {typeof ev.indexed === "number" && <KpiCard label="Indexed pages" value={formatInt(ev.indexed)} hint={typeof ev.previous_indexed === "number" ? `prev ${formatInt(ev.previous_indexed)}` : undefined} />}
         {ev.coverage_state !== undefined && <KpiCard label="Coverage state" value={ev.coverage_state ?? "—"} hint={ev.verdict ?? undefined} />}
       </div>
@@ -111,7 +111,11 @@ function IndexingEvidence({ o }: { o: OpportunityDetail }) {
         </div>
       )}
       <div className="flex flex-wrap gap-4">
-        <Link href={`/properties/${o.property_id}/indexing`} className="text-primary hover:underline">Open Page indexing in Spider</Link>
+        {ev.coverage_state && !ev.url ? (
+          <Link href={`/properties/${o.property_id}/indexing/urls?coverage=${encodeURIComponent(ev.coverage_state)}&in_sitemap=1`} className="text-primary hover:underline">Open the {typeof ev.pages === "number" ? formatInt(ev.pages) : ""} URLs in Spider</Link>
+        ) : (
+          <Link href={`/properties/${o.property_id}/indexing`} className="text-primary hover:underline">Open Page indexing in Spider</Link>
+        )}
         {link && (
           <a href={link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
             Open in Search Console <ExternalLink className="h-3 w-3" aria-hidden />

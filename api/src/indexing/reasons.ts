@@ -31,6 +31,8 @@ const KNOWN: { match: RegExp; intent: ReasonIntent }[] = [
   { match: /^discovered currently not indexed$/, intent: 'likely_defect' },
   { match: /^indexed though blocked by robots txt$/, intent: 'likely_defect' },
   { match: /^page indexed without content$/, intent: 'likely_defect' },
+  // a URL Spider tracks (sitemap, past impressions) that Google has never seen
+  { match: /^url is unknown to google$/, intent: 'likely_defect' },
   {
     match: /^alternate page with proper canonical tag$/,
     intent: 'intentional',

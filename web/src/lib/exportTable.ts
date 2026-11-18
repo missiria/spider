@@ -181,10 +181,10 @@ export function reportTables(data: ReportData): ExportTable[] {
       out.push({
         section: "indexing",
         title: "Page indexing per property",
-        note: "All known pages view of each property’s latest uploaded Search Console export. Inspected = URL Inspection results for Spider’s tracked URLs, a separate source.",
+        note: "Automatic view: Google URL Inspection of the URLs Spider tracks (sitemaps and pages with impressions), not every page Google knows.",
         columns: [
           { label: "Site", kind: "text" },
-          { label: "Report date", kind: "text" },
+          { label: "Last update", kind: "text" },
           { label: "Indexed", kind: "int" },
           { label: "Not indexed", kind: "int" },
           { label: "Inspected URLs", kind: "int" },
@@ -192,21 +192,39 @@ export function reportTables(data: ReportData): ExportTable[] {
         ],
         rows: blocks.map((b) => [
           b.property.display_name,
-          b.report_date ? `${b.report_date}${b.stale ? " (stale)" : ""}` : "no report",
-          b.totals?.indexed ?? null,
-          b.totals?.not_indexed ?? null,
+          b.live?.last_update ?? "not inspected",
+          b.live?.indexed ?? null,
+          b.live?.not_indexed ?? null,
           b.inspection.inspected_urls,
           b.inspection.tracked_urls,
         ]),
       });
     }
     for (const b of blocks) {
-      if (blocks.length > 1 && !b.report_date) continue;
       const head = blocks.length > 1 ? `${b.property.display_name} · ` : "";
+      if (b.live) {
+        out.push({
+          section: "indexing",
+          title: `${head}Why pages aren’t indexed (automatic)`,
+          note: `Source: ${b.live.source} · Last update: ${b.live.last_update} · Completeness: ${b.live.completeness}`,
+          columns: [
+            { label: "Reason", kind: "text" },
+            { label: "Source", kind: "text" },
+            { label: "Classification", kind: "text" },
+            { label: "Pages", kind: "int" },
+          ],
+          rows: [
+            ["Indexed (total)", null, "total", b.live.indexed],
+            ["Not indexed (total)", null, "total", b.live.not_indexed],
+            ...b.live.reasons.map((r): CellValue[] => [r.reason, r.source, r.intent === "likely_defect" ? "critical" : r.intent.replace("_", " "), r.pages]),
+          ],
+        });
+      }
+      if (!b.report_date) continue;
       const provenance = `View: ${b.view} · Source: ${b.source} · Report date: ${b.report_date ?? "none"} · Completeness: ${b.completeness}`;
       out.push({
         section: "indexing",
-        title: `${head}Page indexing reasons`,
+        title: `${head}Page indexing reasons (imported report)`,
         note: provenance,
         columns: [
           { label: "Reason", kind: "text" },

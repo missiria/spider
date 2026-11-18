@@ -41,7 +41,8 @@ export interface RuleConfig {
     min_previous_indexed: number;
     drop_ratio: number;
   };
-  submitted_not_indexed: { enabled: boolean; max_items: number };
+  /** one finding per coverage state with at least `min_urls` sitemap URLs */
+  submitted_not_indexed: { enabled: boolean; min_urls: number };
   indexing_persistent: {
     enabled: boolean;
     min_imports: number;
@@ -79,7 +80,7 @@ export const DEFAULT_RULES: RuleConfig = {
     min_increase_ratio: 0.5,
   },
   indexed_drop: { enabled: true, min_previous_indexed: 20, drop_ratio: 0.15 },
-  submitted_not_indexed: { enabled: true, max_items: 50 },
+  submitted_not_indexed: { enabled: true, min_urls: 1 },
   indexing_persistent: { enabled: true, min_imports: 3, min_pages: 1 },
   regression_days: 14,
 };

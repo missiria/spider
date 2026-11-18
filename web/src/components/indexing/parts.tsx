@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, Info } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleDashed, Info, MinusCircle, PlayCircle, XCircle } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatInt, shortDate } from "@/lib/format";
-import { INTENT_HINTS, INTENT_LABELS, intentTone, verdictTone } from "@/lib/indexing";
+import { INTENT_HINTS, INTENT_LABELS, intentTone } from "@/lib/indexing";
 import type { ReasonIntent } from "@/lib/types";
 
 export function Banner({ tone = "info", title, children }: { tone?: "info" | "warning" | "danger"; title: string; children?: React.ReactNode }) {
@@ -29,8 +29,45 @@ export function IntentChip({ intent }: { intent: ReasonIntent }) {
   );
 }
 
+type StatusLook = { cls: string; Icon: typeof CheckCircle2; label: string };
+
+/** Google's URL Inspection verdict: PASS = indexed (green), FAIL = error (red), NEUTRAL = excluded (grey). */
+function verdictLook(verdict: string | null | undefined): StatusLook {
+  if (verdict === "PASS") return { cls: "bg-success-soft text-success", Icon: CheckCircle2, label: "Pass" };
+  if (verdict === "FAIL") return { cls: "bg-danger-soft text-danger", Icon: XCircle, label: "Fail" };
+  if (verdict === "PARTIAL") return { cls: "bg-warning-soft text-warning", Icon: AlertTriangle, label: "Partial" };
+  if (verdict === "NEUTRAL") return { cls: "bg-surface-muted text-muted", Icon: MinusCircle, label: "Excluded" };
+  return { cls: "bg-surface-muted text-muted", Icon: CircleDashed, label: verdict ?? "Not inspected" };
+}
+
 export function VerdictChip({ verdict }: { verdict: string | null | undefined }) {
-  return <span className={`inline-block rounded-md px-1.5 py-0.5 text-xs font-medium ${verdictTone(verdict)}`}>{verdict ?? "Not inspected"}</span>;
+  const { cls, Icon, label } = verdictLook(verdict);
+  return (
+    <span title={verdict ? `Google verdict: ${verdict}` : undefined} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ${cls}`}>
+      <Icon className="h-3.5 w-3.5" aria-hidden />
+      {label}
+    </span>
+  );
+}
+
+/** Validation status of a reason, as in Search Console: Passed green, Started blue, Failed red. */
+function validationLook(v: string | null): StatusLook {
+  const s = (v ?? "").trim().toLowerCase();
+  if (s === "passed") return { cls: "bg-success-soft text-success", Icon: CheckCircle2, label: "Passed" };
+  if (s === "failed") return { cls: "bg-danger-soft text-danger", Icon: XCircle, label: "Failed" };
+  if (s === "started" || s === "looking good") return { cls: "bg-primary-soft text-primary", Icon: PlayCircle, label: v as string };
+  if (s === "not started") return { cls: "bg-surface-muted text-muted", Icon: CircleDashed, label: "Not started" };
+  return { cls: "bg-surface-muted text-muted", Icon: MinusCircle, label: v && s !== "n/a" ? v : "N/A" };
+}
+
+export function ValidationChip({ value }: { value: string | null }) {
+  const { cls, Icon, label } = validationLook(value);
+  return (
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ${cls}`}>
+      <Icon className="h-3.5 w-3.5" aria-hidden />
+      {label}
+    </span>
+  );
 }
 
 /** Says where a block's numbers come from: the two sources are never added together. */

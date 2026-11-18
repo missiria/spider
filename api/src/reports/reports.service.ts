@@ -85,7 +85,26 @@ export interface IndexingReportBlock {
     last_run_status: string | null;
     stop_reason: string | null;
   };
+  /**
+   * Automatic view: latest URL Inspection result of every tracked URL. A separate source from
+   * the imported report above; null until the property has been inspected.
+   */
+  live: {
+    source: string;
+    last_update: string;
+    completeness: string;
+    indexed: number;
+    not_indexed: number;
+    reasons: {
+      reason: string;
+      source: string;
+      intent: string;
+      pages: number;
+    }[];
+  } | null;
 }
+
+export const INDEXING_LIVE_SOURCE = 'Google URL Inspection API (automatic)';
 
 export const INDEXING_SOURCE =
   'Search Console Page indexing report (uploaded export)';
@@ -595,6 +614,25 @@ export class ReportsService {
         last_run_status: insp.last_run?.status ?? null,
         stop_reason: insp.last_run?.stop_reason ?? null,
       },
+      live:
+        d.live.totals && d.live.last_update
+          ? {
+              source: INDEXING_LIVE_SOURCE,
+              last_update: d.live.last_update,
+              completeness: `${d.live.inspected_urls} of ${d.live.tracked_urls} tracked URLs inspected (sitemaps and pages with impressions); not every page Google knows`,
+              indexed: d.live.totals.indexed,
+              not_indexed: d.live.totals.not_indexed,
+              reasons: d.live.reasons
+                .filter((r) => r.group === 'not_indexed' && r.pages > 0)
+                .slice(0, limit)
+                .map((r) => ({
+                  reason: r.reason,
+                  source: r.source,
+                  intent: r.intent,
+                  pages: r.pages,
+                })),
+            }
+          : null,
     };
   }
 
@@ -760,7 +798,7 @@ export class ReportsService {
             b.totals.previous_not_indexed,
             null,
           ]);
-        } else if (!b.reasons.length) {
+        } else if (!b.reasons.length && !b.live) {
           // a property without a report still appears, with its completeness note
           rows.push([
             ...meta(b),
@@ -788,6 +826,53 @@ export class ReportsService {
             r.previous_pages,
             r.first_seen,
           ]);
+        // automatic view: its own view, date, source and completeness on every row
+        if (b.live) {
+          const live = [
+            b.property.site_url,
+            'Tracked URLs (automatic)',
+            b.live.last_update,
+            b.live.source,
+            b.live.completeness,
+          ];
+          rows.push([
+            ...live,
+            'total',
+            'indexed',
+            'Indexed',
+            null,
+            null,
+            null,
+            b.live.indexed,
+            null,
+            null,
+          ]);
+          rows.push([
+            ...live,
+            'total',
+            'not_indexed',
+            'Not indexed',
+            null,
+            null,
+            null,
+            b.live.not_indexed,
+            null,
+            null,
+          ]);
+          for (const r of b.live.reasons)
+            rows.push([
+              ...live,
+              'reason',
+              'not_indexed',
+              r.reason,
+              r.source,
+              r.intent,
+              null,
+              r.pages,
+              null,
+              null,
+            ]);
+        }
       }
       return {
         filename: `${slug}-indexing-${day}.csv`,

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartLegend, IndexRing, ReasonBars, SplitBar } from "@/components/indexing/charts";
+import { ValidationChip } from "@/components/indexing/parts";
 import { Card } from "@/components/ui";
 import { formatInt, shortDate } from "@/lib/format";
 import type { ReasonGroup } from "@/lib/types";
@@ -37,15 +38,6 @@ export interface GscTrendPoint {
 const INDEXED = "var(--success)";
 const NOT_INDEXED = "var(--chart-secondary)";
 const IMPRESSIONS = "var(--primary)";
-
-export function validationTone(v: string | null): string {
-  const s = (v ?? "").toLowerCase();
-  if (s === "failed") return "bg-danger-soft text-danger";
-  if (s === "passed") return "bg-success-soft text-success";
-  if (s === "started" || s === "looking good") return "bg-primary-soft text-primary";
-  if (s === "not started") return "bg-warning-soft text-warning";
-  return "bg-surface-muted text-muted";
-}
 
 /** Inline trend line of one reason, like the Trend column in Search Console. */
 export function Sparkline({ points, label }: { points: number[]; label: string }) {
@@ -103,7 +95,7 @@ function ReasonsTable({ rows, href }: { rows: GscReasonRow[]; href: (r: GscReaso
               </td>
               <td className="px-4 py-3 text-muted">{r.source ?? "—"}</td>
               <td className="px-4 py-3">
-                <span className={`inline-block whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ${validationTone(r.validation)}`}>{r.validation ?? "N/A"}</span>
+                <ValidationChip value={r.validation} />
               </td>
               <td className="px-4 py-3">
                 <Sparkline points={r.trend.map((t) => t.pages)} label={`Trend of ${r.reason}`} />

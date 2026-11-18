@@ -144,28 +144,52 @@ describe('evaluateIndexing', () => {
     });
   });
 
-  it('lists sitemap URLs Google does not index, from URL Inspection', () => {
+  it('groups sitemap URLs Google does not index by coverage state, one finding each', () => {
+    const url = (path: string, state: string, verdict = 'NEUTRAL') => ({
+      url: `${SITE}${path}`,
+      coverage_state: state,
+      inspected_at: new Date('2026-11-17'),
+      verdict,
+      sitemap: `${SITE}sitemap.xml`,
+    });
     const f = evaluateIndexing(
       input({
         sitemapUrls: [
-          {
-            url: `${SITE}pricing/`,
-            coverage_state: 'URL is unknown to Google',
-            inspected_at: new Date('2026-11-17'),
-            verdict: 'NEUTRAL',
-            sitemap: `${SITE}sitemap.xml`,
-          },
+          ...Array.from({ length: 12 }, (_, i) =>
+            url(`p-${i}/`, 'URL is unknown to Google'),
+          ),
+          url('gone/', 'Not found (404)', 'FAIL'),
         ],
       }),
       DEFAULT_RULES,
     );
-    expect(f).toHaveLength(1);
-    expect(f[0]).toMatchObject({
+    expect(f).toHaveLength(2);
+    const unknown = f.find((x) =>
+      x.key_text.endsWith('URL is unknown to Google'),
+    )!;
+    expect(unknown).toMatchObject({
       rule: 'submitted_not_indexed',
-      subject: 'page',
-      key_text: `${SITE}pricing/`,
+      subject: 'property',
+      title: '12 sitemap URLs not indexed: URL is unknown to Google',
     });
-    expect(f[0].evidence).toMatchObject({ source: 'url_inspection_api' });
+    expect(unknown.evidence).toMatchObject({
+      source: 'url_inspection_api',
+      pages: 12,
+      examples_partial: true,
+    });
+    expect((unknown.evidence.examples as string[]).length).toBe(10);
+    const notFound = f.find((x) => x.key_text.endsWith('Not found (404)'))!;
+    expect(notFound.title).toBe('1 sitemap URL not indexed: Not found (404)');
+    expect(notFound.score).toBeGreaterThan(50);
+    // a threshold above the group size silences it
+    const cfg = JSON.parse(JSON.stringify(DEFAULT_RULES));
+    cfg.submitted_not_indexed.min_urls = 5;
+    expect(
+      evaluateIndexing(
+        input({ sitemapUrls: [url('gone/', 'Not found (404)', 'FAIL')] }),
+        cfg,
+      ),
+    ).toEqual([]);
   });
 
   it('respects disabled rules', () => {

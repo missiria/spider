@@ -9,7 +9,7 @@ export const RULE_LABELS: Record<OpportunityRule, string> = {
   indexing_new_reason: "New indexing issue",
   indexing_spike: "Indexing issue growing",
   indexed_drop: "Indexed pages drop",
-  submitted_not_indexed: "Sitemap URL not indexed",
+  submitted_not_indexed: "Sitemap URLs not indexed",
   indexing_persistent: "Indexing issue not fixed",
 };
 

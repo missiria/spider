@@ -50,9 +50,6 @@ export interface IndexingScanInput {
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const reportLink = (site: string) =>
   `https://search.google.com/search-console/index?resource_id=${encodeURIComponent(site)}`;
-const inspectLink = (site: string, url: string) =>
-  `https://search.google.com/search-console/inspect?resource_id=${encodeURIComponent(site)}&id=${encodeURIComponent(url)}`;
-
 const ACTION: Record<string, string> = {
   'not found 404':
     'Open the affected URLs: restore the page, 301-redirect it to its best replacement, or remove internal links and sitemap entries pointing to it. Then click "Validate fix" in Search Console.',
@@ -230,28 +227,49 @@ export function evaluateIndexing(
     }
   }
 
-  // submitted (sitemap) URLs that Google does not index, per URL Inspection
+  // submitted (sitemap) URLs that Google does not index, per URL Inspection: one finding per
+  // coverage state, not one per URL, so twenty properties do not flood the inbox
   const sn = cfg.submitted_not_indexed;
   if (sn.enabled) {
-    for (const u of input.sitemapUrls.slice(0, sn.max_items)) {
+    const byState = new Map<string, typeof input.sitemapUrls>();
+    for (const u of input.sitemapUrls) {
+      const state = u.coverage_state ?? 'No coverage state';
+      byState.set(state, [...(byState.get(state) ?? []), u]);
+    }
+    for (const [state, urls] of byState) {
+      if (urls.length < sn.min_urls) continue;
+      const failed = urls.some((u) => u.verdict === 'FAIL');
+      const latest = urls.reduce(
+        (m, u) => Math.max(m, new Date(u.inspected_at).getTime()),
+        0,
+      );
+      const sitemaps = [
+        ...new Set(urls.map((u) => u.sitemap).filter((x): x is string => !!x)),
+      ];
       out.push({
         rule: 'submitted_not_indexed',
-        subject: 'page',
-        key_text: u.url,
-        score: clamp(u.verdict === 'FAIL' ? 60 : 45),
+        subject: 'property',
+        key_text: `Sitemap URLs · ${state}`,
+        score: clamp(
+          (failed ? 55 : 40) + Math.min(30, Math.log10(urls.length + 1) * 15),
+        ),
         confidence: 'medium',
-        title: `Sitemap URL not indexed: ${u.coverage_state ?? 'unknown state'}`,
-        reason: `${u.url} is listed in ${u.sitemap ?? 'a sitemap'}, but URL Inspection (${new Date(u.inspected_at).toISOString().slice(0, 10)}) says: "${u.coverage_state ?? 'no coverage state'}".`,
+        title: `${urls.length} sitemap URL${urls.length === 1 ? '' : 's'} not indexed: ${state}`,
+        reason: `${urls.length} URL${urls.length === 1 ? ' is' : 's are'} listed in ${sitemaps.length === 1 ? sitemaps[0] : 'the sitemaps'}, but Google's URL Inspection (latest ${new Date(latest).toISOString().slice(0, 10)}) reports: "${state}".`,
         suggested_action:
-          'Decide whether the URL should be indexed. If yes, fix the reason shown and request indexing in Search Console; if not, remove it from the sitemap.',
+          actionFor(state) ===
+          'Open this reason in Search Console, check a few example URLs with URL Inspection, fix the cause on the site, then start "Validate fix".'
+            ? 'Decide whether these URLs should be indexed. If yes, fix the reason shown and request indexing in Search Console; if not, remove them from the sitemap.'
+            : actionFor(state),
         evidence: {
           source: 'url_inspection_api',
-          url: u.url,
-          sitemap: u.sitemap,
-          coverage_state: u.coverage_state,
-          verdict: u.verdict,
-          inspected_at: u.inspected_at,
-          links: { inspect: inspectLink(input.site_url, u.url) },
+          coverage_state: state,
+          pages: urls.length,
+          examples: urls.slice(0, 10).map((u) => u.url),
+          examples_partial: urls.length > 10,
+          sitemaps: sitemaps.slice(0, 5),
+          inspected_at: new Date(latest),
+          links: { search_console: reportLink(input.site_url) },
         },
       });
     }

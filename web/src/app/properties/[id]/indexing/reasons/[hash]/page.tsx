@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { Banner, Crumbs, IntentChip, SourceNote, tdCls, thCls, TrendChart } from "@/components/indexing/parts";
+import { Banner, Crumbs, IntentChip, SourceNote, tdCls, thCls, TrendChart, ValidationChip } from "@/components/indexing/parts";
 import { Card, ErrorBox, KpiCard, Spinner } from "@/components/ui";
 import { errorMessage, getIndexingReason } from "@/lib/api";
 import { formatInt } from "@/lib/format";
@@ -105,7 +105,7 @@ export default function IndexingReasonPage() {
                       <tr key={h.report_date} className="border-b border-border/60 last:border-0">
                         <td className={`${tdCls} tabular`}>{h.report_date}</td>
                         <td className={`${tdCls} tabular text-right`}>{formatInt(h.pages)}</td>
-                        <td className={`${tdCls} text-muted`}>{h.validation ?? "—"}</td>
+                        <td className={tdCls}><ValidationChip value={h.validation} /></td>
                       </tr>
                     ))}
                   </tbody>

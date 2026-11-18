@@ -27,7 +27,7 @@ export default function IndexingUrlsPage() {
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    setFilter({ coverage: p.get("coverage") ?? undefined, verdict: p.get("verdict") ?? undefined, page: 1 });
+    setFilter({ coverage: p.get("coverage") ?? undefined, verdict: p.get("verdict") ?? undefined, in_sitemap: p.get("in_sitemap") === "1" ? "1" : undefined, page: 1 });
     getPropertyIndexing(id).then(setSummary).catch(() => undefined);
   }, [id]);
 

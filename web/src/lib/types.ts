@@ -333,7 +333,7 @@ export interface RuleConfig {
     min_previous_indexed: number;
     drop_ratio: number;
   };
-  submitted_not_indexed: { enabled: boolean; max_items: number };
+  submitted_not_indexed: { enabled: boolean; min_urls: number };
   indexing_persistent: {
     enabled: boolean;
     min_imports: number;
@@ -849,4 +849,13 @@ export interface IndexingReportBlock {
     last_run_status: string | null;
     stop_reason: string | null;
   };
+  /** automatic view (URL Inspection); a separate source from the imported report */
+  live: {
+    source: string;
+    last_update: string;
+    completeness: string;
+    indexed: number;
+    not_indexed: number;
+    reasons: { reason: string; source: string; intent: string; pages: number }[];
+  } | null;
 }
