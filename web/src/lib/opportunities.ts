@@ -1,3 +1,4 @@
+import type { OpportunityFilter } from "./api";
 import type { OpportunityPriority, OpportunityRule, OpportunityStatus, OpportunitySubject } from "./types";
 
 export const RULE_LABELS: Record<OpportunityRule, string> = {
@@ -59,4 +60,41 @@ export function subjectLabel(subject: OpportunitySubject, key: string): string {
 export function isOverdue(due: string | null, status: OpportunityStatus): boolean {
   if (!due || status === "done" || status === "dismissed") return false;
   return due < new Date().toISOString().slice(0, 10);
+}
+
+/** Status tabs of the list; "active" is open + in progress. */
+export const STATUS_TABS: { value: string; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "open", label: "Open" },
+  { value: "in_progress", label: "In progress" },
+  { value: "done", label: "Done" },
+  { value: "dismissed", label: "Dismissed" },
+  { value: "all", label: "All" },
+];
+
+export const DEFAULT_OPPORTUNITY_FILTER: OpportunityFilter = { status: "active" };
+
+const positiveInt = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : undefined);
+const oneOf = (v: unknown, allowed: object): string | undefined => (typeof v === "string" && Object.hasOwn(allowed, v) ? v : undefined);
+
+/**
+ * Clean a remembered list filter (MISS-0189): unknown keys and values that no longer exist
+ * are dropped, never shown as an empty list. Pass the loaded option ids to also drop a
+ * property or assignee that was deleted since the filter was saved.
+ */
+export function sanitizeOpportunityFilter(raw: unknown, known: { propertyIds?: number[]; userIds?: number[] } = {}): OpportunityFilter {
+  const r = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const status = typeof r.status === "string" && STATUS_TABS.some((t) => t.value === r.status) ? r.status : "active";
+  const out: OpportunityFilter = { status };
+  const property = positiveInt(r.property_id);
+  if (property && (!known.propertyIds || known.propertyIds.includes(property))) out.property_id = property;
+  const rule = oneOf(r.rule, RULE_LABELS);
+  if (rule) out.rule = rule;
+  const priority = oneOf(r.priority, PRIORITY_LABELS);
+  if (priority) out.priority = priority;
+  const subject = oneOf(r.subject, SUBJECT_LABELS);
+  if (subject) out.subject = subject;
+  const assignee = positiveInt(r.assignee_id);
+  if (assignee && (!known.userIds || known.userIds.includes(assignee))) out.assignee_id = assignee;
+  return out;
 }

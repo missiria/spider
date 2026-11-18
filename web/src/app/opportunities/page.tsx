@@ -3,28 +3,27 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button, Card, EmptyState, ErrorBox, Spinner } from "@/components/ui";
 import { errorMessage, getProperties, listOpportunities, listUsers, scanOpportunities, updateOpportunity, type OpportunityFilter } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { confidenceLabel, isOverdue, PRIORITY_LABELS, priorityTone, RULE_LABELS, STATUS_LABELS, statusTone, SUBJECT_LABELS, subjectLabel } from "@/lib/opportunities";
+import { confidenceLabel, DEFAULT_OPPORTUNITY_FILTER, isOverdue, PRIORITY_LABELS, priorityTone, RULE_LABELS, sanitizeOpportunityFilter, STATUS_LABELS, STATUS_TABS, statusTone, SUBJECT_LABELS, subjectLabel } from "@/lib/opportunities";
+import { sameFilter } from "@/lib/persistedFilter";
+import { usePersistedFilter } from "@/lib/usePersistedFilter";
 import type { Opportunity, OpportunityList, OpportunityPriority, OpportunityStatus, PropertyRow, User } from "@/lib/types";
 
-const STATUS_TABS: { value: string; label: string }[] = [
-  { value: "active", label: "Active" },
-  { value: "open", label: "Open" },
-  { value: "in_progress", label: "In progress" },
-  { value: "done", label: "Done" },
-  { value: "dismissed", label: "Dismissed" },
-  { value: "all", label: "All" },
-];
+const FILTER_NAME = "opportunities";
 
 export default function OpportunitiesPage() {
-  const [filter, setFilter] = useState<OpportunityFilter>({ status: "active" });
+  // remembered for the login session: survives the detail view, other sections and a reload (MISS-0189)
+  const { value: filter, setValue: setFilter, reset: resetFilter, ready } = usePersistedFilter<OpportunityFilter>(FILTER_NAME, DEFAULT_OPPORTUNITY_FILTER, sanitizeOpportunityFilter);
   const [data, setData] = useState<OpportunityList | null>(null);
   const [properties, setProperties] = useState<PropertyRow[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  // ids of the loaded options; null until (and unless) the request succeeds
+  const [propertyIds, setPropertyIds] = useState<number[] | null>(null);
+  const [userIds, setUserIds] = useState<number[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | "scan" | null>(null);
 
@@ -38,13 +37,33 @@ export default function OpportunitiesPage() {
   }, [filter]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    // wait for the remembered filter, so the list is never fetched with the defaults first
+    if (ready) void load();
+  }, [ready, load]);
 
   useEffect(() => {
-    getProperties().then((r) => setProperties(r.items)).catch(() => undefined);
-    listUsers().then((r) => setUsers(r.items)).catch(() => undefined);
+    getProperties()
+      .then((r) => {
+        setProperties(r.items);
+        setPropertyIds(r.items.map((p) => p.id));
+      })
+      .catch(() => undefined);
+    listUsers()
+      .then((r) => {
+        setUsers(r.items);
+        setUserIds(r.items.map((u) => u.id));
+      })
+      .catch(() => undefined);
   }, []);
+
+  // a remembered property or assignee that no longer exists is dropped silently
+  useEffect(() => {
+    if (!ready || (!propertyIds && !userIds)) return;
+    setFilter((f) => {
+      const clean = sanitizeOpportunityFilter(f, { propertyIds: propertyIds ?? undefined, userIds: userIds ?? undefined });
+      return sameFilter(f, clean) ? f : clean;
+    });
+  }, [ready, propertyIds, userIds, setFilter]);
 
   const propertyName = useMemo(() => new Map(properties.map((p) => [p.id, p.display_name])), [properties]);
   const userName = useMemo(() => new Map(users.map((u) => [u.id, u.name])), [users]);
@@ -139,6 +158,12 @@ export default function OpportunitiesPage() {
             </option>
           ))}
         </select>
+        {!sameFilter(filter, DEFAULT_OPPORTUNITY_FILTER) && (
+          <button type="button" onClick={resetFilter} className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted hover:text-foreground">
+            <X className="h-3.5 w-3.5" aria-hidden />
+            Reset filters
+          </button>
+        )}
         {data && <span className="ml-auto text-xs text-muted">{data.items.length} item{data.items.length === 1 ? "" : "s"}</span>}
       </div>
 

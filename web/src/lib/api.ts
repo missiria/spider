@@ -1,4 +1,5 @@
 import axios, { AxiosError } from "axios";
+import { clearStoredFilters } from "./persistedFilter";
 import type {
   AuthResponse,
   FleetOverview,
@@ -53,6 +54,8 @@ export async function startSession(
     user?: AuthResponse["user"];
   };
   if (!res.ok) throw new Error(data.message ?? "Login failed");
+  // a new login starts from default list filters, whoever used this browser before (MISS-0189)
+  clearStoredFilters();
   return data.user as AuthResponse["user"];
 }
 
@@ -94,6 +97,8 @@ export const resetPassword = (token: string, password: string) =>
   accountAction("reset-password", { token, password });
 
 export async function endSession(): Promise<void> {
+  // list filters are remembered for the login session only (MISS-0189)
+  clearStoredFilters();
   await fetch("/auth/session", { method: "DELETE" }).catch(() => undefined);
 }
 
