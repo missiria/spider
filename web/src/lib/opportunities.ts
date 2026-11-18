@@ -11,10 +11,11 @@ export const RULE_LABELS: Record<OpportunityRule, string> = {
   indexed_drop: "Indexed pages drop",
   submitted_not_indexed: "Sitemap URLs not indexed",
   indexing_persistent: "Indexing issue not fixed",
+  not_indexed_reason: "Pages not indexed",
 };
 
 /** Rules fed by Page indexing data (report exports, URL Inspection), not Search Analytics. */
-export const INDEXING_RULES: OpportunityRule[] = ["indexing_new_reason", "indexing_spike", "indexed_drop", "submitted_not_indexed", "indexing_persistent"];
+export const INDEXING_RULES: OpportunityRule[] = ["indexing_new_reason", "indexing_spike", "indexed_drop", "submitted_not_indexed", "indexing_persistent", "not_indexed_reason"];
 export const isIndexingRule = (rule: string): boolean => (INDEXING_RULES as string[]).includes(rule);
 
 export const STATUS_LABELS: Record<OpportunityStatus, string> = {

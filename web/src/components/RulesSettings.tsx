@@ -54,6 +54,11 @@ const FIELDS: Record<keyof Omit<RuleConfig, "window_days" | "regression_days">, 
     blurb: "Sitemap URLs whose latest URL Inspection says they are not indexed, grouped by Google's reason: one finding per reason and property.",
     fields: { min_urls: { label: "Min. URLs per reason" } },
   },
+  not_indexed_reason: {
+    title: "Pages not indexed",
+    blurb: "Critical reasons of the “Why pages aren’t indexed” table for pages that are in no sitemap: one finding per reason and property. Redirects, noindex and canonical alternates are ignored.",
+    fields: { min_pages: { label: "Min. pages per reason" } },
+  },
   indexing_persistent: {
     title: "Indexing issue not fixed",
     blurb: "A likely defect still present after several imported reports in a row.",

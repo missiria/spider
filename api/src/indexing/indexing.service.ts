@@ -342,8 +342,48 @@ export class IndexingService {
         created_at: i.created_at,
       })),
       inspection: await this.inspectionSummary(property),
-      live: await this.liveIndexing(property),
+      live: await this.withOpportunities(
+        property,
+        await this.liveIndexing(property),
+      ),
       links: { search_console: gscReportLink(property.site_url) },
+    };
+  }
+
+  /**
+   * Adds to each live reason the opportunities raised from it (MISS-0194), so the "Why pages
+   * aren't indexed" table can link to them. Read with SQL: the opportunities module depends
+   * on this one, not the other way round.
+   */
+  private async withOpportunities<T extends { reasons: { reason: string }[] }>(
+    property: Property,
+    live: T,
+  ) {
+    const rows: {
+      id: number;
+      rule: string;
+      status: string;
+      key_text: string;
+    }[] = await this.db.query(
+      `SELECT id, rule, status, key_text FROM opportunities
+          WHERE property_id = ? AND rule IN ('not_indexed_reason', 'submitted_not_indexed')
+            AND status IN ('open', 'in_progress')
+          ORDER BY id ASC`,
+      [property.id],
+    );
+    const SITEMAP_PREFIX = 'Sitemap URLs · ';
+    return {
+      ...live,
+      reasons: live.reasons.map((r) => ({
+        ...r,
+        opportunities: rows
+          .filter((o) =>
+            o.rule === 'not_indexed_reason'
+              ? o.key_text === r.reason
+              : o.key_text === `${SITEMAP_PREFIX}${r.reason}`,
+          )
+          .map((o) => ({ id: Number(o.id), rule: o.rule, status: o.status })),
+      })),
     };
   }
 
@@ -1040,19 +1080,24 @@ export class IndexingService {
             order: { date: 'DESC' },
           })
         : null;
-    const notIndexedSitemap: {
+    const latestInspections: {
       url: string;
       coverage_state: string | null;
       inspected_at: Date;
       verdict: string | null;
       sitemap: string | null;
+      in_sitemap: number | boolean;
     }[] = await this.db.query(
-      `SELECT t.url, t.sitemap, i.coverage_state, i.inspected_at, i.verdict
+      `SELECT t.url, t.sitemap, t.in_sitemap, i.coverage_state, i.inspected_at, i.verdict
            FROM tracked_urls t
            JOIN (SELECT url_hash, MAX(id) AS id FROM url_inspections WHERE property_id = ? AND error IS NULL GROUP BY url_hash) l ON l.url_hash = t.url_hash
            JOIN url_inspections i ON i.id = l.id
-          WHERE t.property_id = ? AND t.in_sitemap = 1`,
+          WHERE t.property_id = ?
+          ORDER BY t.url ASC`,
       [propertyId, propertyId],
+    );
+    const notIndexed = latestInspections.filter(
+      (u) => !isIndexedCoverage(u.coverage_state),
     );
     const examples = new Map<
       string,
@@ -1093,9 +1138,23 @@ export class IndexingService {
       })),
       latestTotals: await lastTrend(list[0]),
       previousTotals: await lastTrend(list[1]),
-      sitemapUrls: notIndexedSitemap.filter(
-        (u) => !isIndexedCoverage(u.coverage_state),
-      ),
+      sitemapUrls: notIndexed
+        .filter((u) => Number(u.in_sitemap) === 1)
+        .map((u) => ({
+          url: u.url,
+          coverage_state: u.coverage_state,
+          inspected_at: u.inspected_at,
+          verdict: u.verdict,
+          sitemap: u.sitemap,
+        })),
+      otherUrls: notIndexed
+        .filter((u) => Number(u.in_sitemap) !== 1)
+        .map((u) => ({
+          url: u.url,
+          coverage_state: u.coverage_state,
+          inspected_at: u.inspected_at,
+          verdict: u.verdict,
+        })),
       examples,
     };
   }

@@ -41,7 +41,7 @@ are not in the API either.
   counted in `gsc_quota_usage`; each result is one `url_inspections` history row with the raw
   response. A 429 stops the run as `partial` / `quota`; a 403 as `partial` /
   `permission_denied`, keeping earlier data.
-- **Opportunities.** Five rules in `opportunities/indexing.rules.ts`: `indexing_new_reason`,
+- **Opportunities.** Six rules (the sixth, `not_indexed_reason`, is described below) in `opportunities/indexing.rules.ts`: `indexing_new_reason`,
   `indexing_spike`, `indexed_drop`, `indexing_persistent` (all from the two latest All-known
   imports) and `submitted_not_indexed` (latest inspection of sitemap URLs). `intentional`
   reasons never raise a finding. Fingerprint = rule + property + reason text or URL, so the
@@ -75,6 +75,11 @@ are not in the API either.
   Google" is critical: a tracked URL Google has never seen.
 - **Findings.** `submitted_not_indexed` raises one finding per property and coverage state
   with the URL count and up to 10 examples, not one per URL.
+- **Reasons table to opportunities (MISS-0194).** `not_indexed_reason` raises one finding
+  per property and critical (`likely_defect`) reason for the tracked URLs that are in no
+  sitemap. Sitemap URLs stay with `submitted_not_indexed`, so a page is in one finding only.
+  Intentional and unknown reasons outside the sitemap raise nothing. The "Why pages aren't
+  indexed" table shows, per reason, a link to its open opportunities.
 - **Reports.** The `indexing` section prints the automatic block (its own source, date and
   completeness) and, when an export is imported, that report as a separate block.
 - **No submit.** Google's API cannot request indexing. The UI links to Search Console

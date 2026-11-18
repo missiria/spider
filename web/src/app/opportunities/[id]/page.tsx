@@ -56,6 +56,8 @@ function IndexingEvidence({ o }: { o: OpportunityDetail }) {
     reason?: string;
     reason_source?: string | null;
     pages?: number;
+    sitemap_pages?: number;
+    scope?: string;
     previous_pages?: number;
     indexed?: number;
     previous_indexed?: number;
@@ -80,7 +82,7 @@ function IndexingEvidence({ o }: { o: OpportunityDetail }) {
         {ev.inspected_at && <> · inspected <span className="tabular">{String(ev.inspected_at).slice(0, 10)}</span></>}
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {typeof ev.pages === "number" && <KpiCard label={ev.source === "url_inspection_api" ? "Sitemap URLs" : "Affected pages"} value={formatInt(ev.pages)} hint={typeof ev.previous_pages === "number" ? `prev ${formatInt(ev.previous_pages)}` : undefined} />}
+        {typeof ev.pages === "number" && <KpiCard label={ev.source !== "url_inspection_api" ? "Affected pages" : ev.scope === "not_in_sitemap" ? "Pages outside sitemaps" : "Sitemap URLs"} value={formatInt(ev.pages)} hint={typeof ev.previous_pages === "number" ? `prev ${formatInt(ev.previous_pages)}` : ev.sitemap_pages ? `+ ${formatInt(ev.sitemap_pages)} in sitemaps (separate item)` : undefined} />}
         {typeof ev.indexed === "number" && <KpiCard label="Indexed pages" value={formatInt(ev.indexed)} hint={typeof ev.previous_indexed === "number" ? `prev ${formatInt(ev.previous_indexed)}` : undefined} />}
         {ev.coverage_state !== undefined && <KpiCard label="Coverage state" value={ev.coverage_state ?? "—"} hint={ev.verdict ?? undefined} />}
       </div>

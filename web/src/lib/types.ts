@@ -227,7 +227,8 @@ export type OpportunityRule =
   | "indexing_spike"
   | "indexed_drop"
   | "submitted_not_indexed"
-  | "indexing_persistent";
+  | "indexing_persistent"
+  | "not_indexed_reason";
 export type OpportunityStatus = "open" | "in_progress" | "done" | "dismissed";
 export type OpportunityPriority = "low" | "medium" | "high";
 export type OpportunitySubject = "property" | "page" | "query";
@@ -334,6 +335,7 @@ export interface RuleConfig {
     drop_ratio: number;
   };
   submitted_not_indexed: { enabled: boolean; min_urls: number };
+  not_indexed_reason: { enabled: boolean; min_pages: number };
   indexing_persistent: {
     enabled: boolean;
     min_imports: number;
@@ -581,6 +583,8 @@ export interface LiveIndexing {
     validation: string | null;
     pages: number;
     trend: { date: string; pages: number }[];
+    /** open or in-progress opportunities raised from this reason */
+    opportunities?: { id: number; rule: OpportunityRule; status: OpportunityStatus }[];
   }[];
 }
 

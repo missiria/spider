@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Lightbulb } from "lucide-react";
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartLegend, IndexRing, ReasonBars, SplitBar } from "@/components/indexing/charts";
 import { ValidationChip } from "@/components/indexing/parts";
@@ -26,6 +26,8 @@ export interface GscReasonRow {
   is_new?: boolean;
   /** a reason Spider classifies as a likely defect: shown in red */
   critical?: boolean;
+  /** open or in-progress opportunities raised from this reason (automatic view only) */
+  opportunities?: { id: number; rule: string; status: string }[];
 }
 
 export interface GscTrendPoint {
@@ -70,9 +72,11 @@ function Tile({ label, value, hint, color, active, onToggle }: { label: string; 
 
 function ReasonsTable({ rows, href }: { rows: GscReasonRow[]; href: (r: GscReasonRow) => string }) {
   const th = "px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted";
+  // only the automatic view knows the opportunities of a reason
+  const withOpportunities = rows.some((r) => r.opportunities !== undefined);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-sm">
+      <table className={`w-full text-sm ${withOpportunities ? "min-w-[860px]" : "min-w-[720px]"}`}>
         <thead>
           <tr className="border-b border-border">
             <th className={th}>Reason</th>
@@ -80,6 +84,7 @@ function ReasonsTable({ rows, href }: { rows: GscReasonRow[]; href: (r: GscReaso
             <th className={th}>Validation</th>
             <th className={th}>Trend</th>
             <th className={`${th} text-right`}>Pages</th>
+            {withOpportunities && <th className={th}>Opportunity</th>}
             <th className={th}><span className="sr-only">Open</span></th>
           </tr>
         </thead>
@@ -101,6 +106,23 @@ function ReasonsTable({ rows, href }: { rows: GscReasonRow[]; href: (r: GscReaso
                 <Sparkline points={r.trend.map((t) => t.pages)} label={`Trend of ${r.reason}`} />
               </td>
               <td className={`tabular px-4 py-3 text-right font-medium ${r.critical && r.pages > 0 ? "text-danger" : ""}`}>{formatInt(r.pages)}</td>
+              {withOpportunities && (
+                <td className="px-4 py-3">
+                  {r.opportunities && r.opportunities.length > 0 ? (
+                    <span className="flex flex-wrap gap-1.5">
+                      {r.opportunities.map((o) => (
+                        <Link key={o.id} href={`/opportunities/${o.id}`} title={o.rule === "submitted_not_indexed" ? "Opportunity for the sitemap URLs of this reason" : "Opportunity for the pages of this reason that are in no sitemap"} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary hover:underline">
+                          <Lightbulb className="h-3.5 w-3.5" aria-hidden />
+                          {o.rule === "submitted_not_indexed" ? "Sitemap URLs" : "Other pages"}
+                          {o.status === "in_progress" && <span className="text-muted">· in progress</span>}
+                        </Link>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  )}
+                </td>
+              )}
               <td className="px-2 py-3 text-right text-muted">
                 <Link href={href(r)} aria-label={`Open ${r.reason}`} className="inline-flex rounded p-1 hover:text-primary">
                   <ChevronRight className="h-4 w-4" aria-hidden />

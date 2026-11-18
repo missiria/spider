@@ -189,6 +189,7 @@ export const STRINGS: Record<PromptLang, PromptStrings> = {
       indexed_drop: "Indexed pages drop",
       submitted_not_indexed: "Sitemap URLs not indexed",
       indexing_persistent: "Indexing issue not fixed",
+      not_indexed_reason: "Pages not indexed",
     },
     unknownRule: "Other",
     statuses: {
@@ -326,6 +327,7 @@ export const STRINGS: Record<PromptLang, PromptStrings> = {
       indexed_drop: "Baisse des pages indexées",
       submitted_not_indexed: "URL de sitemap non indexées",
       indexing_persistent: "Problème d’indexation non corrigé",
+      not_indexed_reason: "Pages non indexées",
     },
     unknownRule: "Autre",
     statuses: {

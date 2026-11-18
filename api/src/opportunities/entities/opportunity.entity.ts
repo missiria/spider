@@ -25,6 +25,8 @@ export const OPPORTUNITY_RULES = [
   'indexed_drop',
   'submitted_not_indexed',
   'indexing_persistent',
+  // critical reasons of the live "Why pages aren't indexed" table (MISS-0194)
+  'not_indexed_reason',
 ] as const;
 /** Rules fed by Page indexing data rather than Search Analytics. */
 export const INDEXING_RULES = [
@@ -33,6 +35,8 @@ export const INDEXING_RULES = [
   'indexed_drop',
   'submitted_not_indexed',
   'indexing_persistent',
+  // critical reasons of the live "Why pages aren't indexed" table (MISS-0194)
+  'not_indexed_reason',
 ] as const;
 export type OpportunityRule = (typeof OPPORTUNITY_RULES)[number];
 

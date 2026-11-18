@@ -913,6 +913,24 @@ describe('Spider API (e2e)', () => {
       pages: 1,
       sitemaps: [`${SITE}sitemap.xml`],
     });
+    // critical reasons on tracked pages that are in no sitemap: one finding per reason (MISS-0194)
+    const otherReasons = (await opps()).filter(
+      (o) => o.rule === 'not_indexed_reason',
+    );
+    const unknownOpp = otherReasons.find(
+      (o) => o.key_text === 'URL is unknown to Google',
+    )!;
+    expect(unknownOpp).toBeDefined();
+    expect(unknownOpp.evidence).toMatchObject({
+      source: 'url_inspection_api',
+      scope: 'not_in_sitemap',
+    });
+    expect(unknownOpp.evidence.pages).toBeGreaterThanOrEqual(10);
+    // a second scan refreshes the same items instead of duplicating them
+    await http.post('/opportunities/scan').set(auth()).expect(200);
+    expect(
+      (await opps()).filter((o) => o.rule === 'not_indexed_reason'),
+    ).toHaveLength(otherReasons.length);
     const notFoundUrls = await http
       .get(
         `/properties/${propertyId}/indexing/urls?coverage=${encodeURIComponent('Not found (404)')}&in_sitemap=1`,
@@ -968,6 +986,22 @@ describe('Spider API (e2e)', () => {
       validation: null,
     });
     expect(liveNotFound.trend[liveNotFound.trend.length - 1].pages).toBe(1);
+    // each reason of the table links to the opportunities raised from it (MISS-0194)
+    expect(liveNotFound.opportunities).toEqual([
+      expect.objectContaining({
+        rule: 'submitted_not_indexed',
+        status: 'open',
+      }),
+    ]);
+    expect(
+      live.reasons.find(
+        (r: { reason: string }) => r.reason === 'URL is unknown to Google',
+      ).opportunities,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule: 'not_indexed_reason' }),
+      ]),
+    );
     expect(
       live.reasons.find(
         (r: { reason: string }) =>

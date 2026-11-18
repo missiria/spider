@@ -43,6 +43,11 @@ export interface RuleConfig {
   };
   /** one finding per coverage state with at least `min_urls` sitemap URLs */
   submitted_not_indexed: { enabled: boolean; min_urls: number };
+  /**
+   * one finding per critical reason of the live "Why pages aren't indexed" table, counting
+   * the tracked URLs that are in no sitemap (sitemap URLs belong to submitted_not_indexed)
+   */
+  not_indexed_reason: { enabled: boolean; min_pages: number };
   indexing_persistent: {
     enabled: boolean;
     min_imports: number;
@@ -81,6 +86,7 @@ export const DEFAULT_RULES: RuleConfig = {
   },
   indexed_drop: { enabled: true, min_previous_indexed: 20, drop_ratio: 0.15 },
   submitted_not_indexed: { enabled: true, min_urls: 1 },
+  not_indexed_reason: { enabled: true, min_pages: 1 },
   indexing_persistent: { enabled: true, min_imports: 3, min_pages: 1 },
   regression_days: 14,
 };
@@ -114,6 +120,7 @@ export function mergeRules(partial: unknown): RuleConfig {
     'indexing_spike',
     'indexed_drop',
     'submitted_not_indexed',
+    'not_indexed_reason',
     'indexing_persistent',
   ] as const) {
     const src = p[rule];

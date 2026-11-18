@@ -18,6 +18,7 @@ const TEMPLATES = new Map<string, RuleTemplate>([
   ["indexed_drop", indexing],
   ["submitted_not_indexed", indexing],
   ["indexing_persistent", indexing],
+  ["not_indexed_reason", indexing],
 ]);
 
 export function ruleTemplate(rule: string): RuleTemplate {

@@ -6,7 +6,7 @@
  * (and `review` for the new-reason alert) can produce findings: intentional exclusions such as
  * canonical alternates, noindex or redirects are never reported as defects.
  */
-import { ReasonIntent } from '../indexing/reasons';
+import { ReasonIntent, reasonIntent } from '../indexing/reasons';
 import { Finding } from './rules.engine';
 import { RuleConfig } from './rules.config';
 
@@ -39,6 +39,16 @@ export interface IndexingScanInput {
     inspected_at: Date;
     verdict: string | null;
     sitemap: string | null;
+  }[];
+  /**
+   * tracked URLs that are in no sitemap and whose latest inspection says they are not
+   * indexed: the rest of the live "Why pages aren't indexed" table (MISS-0194)
+   */
+  otherUrls: {
+    url: string;
+    coverage_state: string | null;
+    inspected_at: Date;
+    verdict: string | null;
   }[];
   /** example URLs from the latest issue export of each reason */
   examples: Map<
@@ -268,6 +278,58 @@ export function evaluateIndexing(
           examples: urls.slice(0, 10).map((u) => u.url),
           examples_partial: urls.length > 10,
           sitemaps: sitemaps.slice(0, 5),
+          inspected_at: new Date(latest),
+          links: { search_console: reportLink(input.site_url) },
+        },
+      });
+    }
+  }
+
+  // critical reasons of the live "Why pages aren't indexed" table, for the tracked URLs that
+  // are in no sitemap (MISS-0194). Sitemap URLs are reported by submitted_not_indexed above,
+  // so a page is never counted in two findings. Intentional and unknown reasons stay silent:
+  // a redirect or a noindex outside the sitemap is the normal result of a correct setup.
+  const nr = cfg.not_indexed_reason;
+  if (nr.enabled) {
+    const byReason = new Map<string, typeof input.otherUrls>();
+    for (const u of input.otherUrls) {
+      if (!u.coverage_state) continue;
+      if (reasonIntent(u.coverage_state) !== 'likely_defect') continue;
+      byReason.set(u.coverage_state, [
+        ...(byReason.get(u.coverage_state) ?? []),
+        u,
+      ]);
+    }
+    for (const [reason, urls] of byReason) {
+      if (urls.length < nr.min_pages) continue;
+      const failed = urls.some((u) => u.verdict === 'FAIL');
+      const latest = urls.reduce(
+        (m, u) => Math.max(m, new Date(u.inspected_at).getTime()),
+        0,
+      );
+      const inSitemap = input.sitemapUrls.filter(
+        (u) => u.coverage_state === reason,
+      ).length;
+      out.push({
+        rule: 'not_indexed_reason',
+        subject: 'property',
+        key_text: reason,
+        score: clamp(
+          (failed ? 50 : 35) + Math.min(30, Math.log10(urls.length + 1) * 15),
+        ),
+        confidence: 'medium',
+        title: `${urls.length} page${urls.length === 1 ? '' : 's'} not indexed: ${reason}`,
+        reason: `Google's URL Inspection (latest ${new Date(latest).toISOString().slice(0, 10)}) reports "${reason}" for ${urls.length} tracked page${urls.length === 1 ? '' : 's'} that ${urls.length === 1 ? 'is' : 'are'} in no sitemap.${inSitemap ? ` ${inSitemap} sitemap URL${inSitemap === 1 ? ' has' : 's have'} the same reason and ${inSitemap === 1 ? 'is' : 'are'} tracked in a separate item.` : ''}`,
+        suggested_action: actionFor(reason),
+        evidence: {
+          source: 'url_inspection_api',
+          scope: 'not_in_sitemap',
+          reason,
+          coverage_state: reason,
+          pages: urls.length,
+          sitemap_pages: inSitemap,
+          examples: urls.slice(0, 10).map((u) => u.url),
+          examples_partial: urls.length > 10,
           inspected_at: new Date(latest),
           links: { search_console: reportLink(input.site_url) },
         },

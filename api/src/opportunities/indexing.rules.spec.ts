@@ -18,6 +18,7 @@ function input(over: Partial<IndexingScanInput>): IndexingScanInput {
     latestTotals: null,
     previousTotals: null,
     sitemapUrls: [],
+    otherUrls: [],
     examples: new Map(),
     ...over,
   };
@@ -190,6 +191,74 @@ describe('evaluateIndexing', () => {
         cfg,
       ),
     ).toEqual([]);
+  });
+
+  it('raises one finding per critical reason for pages outside the sitemap (MISS-0194)', () => {
+    const other = (
+      path: string,
+      state: string | null,
+      verdict = 'NEUTRAL',
+    ) => ({
+      url: `${SITE}${path}`,
+      coverage_state: state,
+      inspected_at: new Date('2026-11-17'),
+      verdict,
+    });
+    const otherUrls = [
+      ...Array.from({ length: 12 }, (_, i) =>
+        other(`old-${i}/`, 'Not found (404)', 'FAIL'),
+      ),
+      other('thin/', 'Crawled - currently not indexed'),
+      // intentional or unknown reasons outside the sitemap are not defects
+      other('moved/', 'Page with redirect'),
+      other('private/', 'Excluded by ‘noindex’ tag'),
+      other('odd/', 'Some future Google reason'),
+      other('none/', null),
+    ];
+    const f = evaluateIndexing(
+      input({
+        otherUrls,
+        sitemapUrls: [
+          {
+            ...other('in-map/', 'Not found (404)', 'FAIL'),
+            sitemap: `${SITE}sitemap.xml`,
+          },
+        ],
+      }),
+      DEFAULT_RULES,
+    ).filter((x) => x.rule === 'not_indexed_reason');
+    expect(f.map((x) => x.key_text).sort()).toEqual([
+      'Crawled - currently not indexed',
+      'Not found (404)',
+    ]);
+    const notFound = f.find((x) => x.key_text === 'Not found (404)')!;
+    expect(notFound).toMatchObject({
+      subject: 'property',
+      title: '12 pages not indexed: Not found (404)',
+    });
+    expect(notFound.reason).toContain('1 sitemap URL has the same reason');
+    expect(notFound.evidence).toMatchObject({
+      source: 'url_inspection_api',
+      scope: 'not_in_sitemap',
+      pages: 12,
+      sitemap_pages: 1,
+      examples_partial: true,
+    });
+    expect((notFound.evidence.examples as string[]).length).toBe(10);
+    const thin = f.find((x) => x.key_text.startsWith('Crawled'))!;
+    expect(thin.title).toBe(
+      '1 page not indexed: Crawled - currently not indexed',
+    );
+    expect(notFound.score).toBeGreaterThan(thin.score);
+
+    // threshold and switch
+    const cfg = JSON.parse(JSON.stringify(DEFAULT_RULES));
+    cfg.not_indexed_reason.min_pages = 5;
+    expect(
+      evaluateIndexing(input({ otherUrls }), cfg).map((x) => x.key_text),
+    ).toEqual(['Not found (404)']);
+    cfg.not_indexed_reason.enabled = false;
+    expect(evaluateIndexing(input({ otherUrls }), cfg)).toEqual([]);
   });
 
   it('respects disabled rules', () => {
