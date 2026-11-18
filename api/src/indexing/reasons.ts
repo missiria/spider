@@ -96,3 +96,19 @@ export function isIndexedCoverage(state: string | null | undefined): boolean {
     n.startsWith('indexed')
   );
 }
+
+/**
+ * "Source" column of Search Console's Page indexing report: who causes the state. The URL
+ * Inspection API does not return it, so the live view derives it from the reason text.
+ */
+const GOOGLE_SYSTEMS = [
+  /^crawled currently not indexed$/,
+  /^discovered currently not indexed$/,
+  /^duplicate google chose different canonical than user$/,
+  /^url is unknown to google$/,
+  /^page indexed without content$/,
+];
+export function reasonSource(reason: string): 'Website' | 'Google systems' {
+  const n = normalizeReason(reason);
+  return GOOGLE_SYSTEMS.some((r) => r.test(n)) ? 'Google systems' : 'Website';
+}

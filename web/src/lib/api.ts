@@ -646,3 +646,7 @@ export const refreshIndexing = (id: number) =>
   api
     .post<{ started: boolean }>(`/properties/${id}/indexing/refresh`)
     .then((r) => r.data);
+export const refreshAllIndexing = () =>
+  api
+    .post<{ started: boolean; properties: number }>("/indexing/refresh")
+    .then((r) => r.data);

@@ -27,6 +27,7 @@ import {
   md5,
   reasonHash,
   reasonIntent,
+  reasonSource,
   scopeHash,
 } from './reasons';
 
@@ -329,7 +330,127 @@ export class IndexingService {
         created_at: i.created_at,
       })),
       inspection: await this.inspectionSummary(property),
+      live: await this.liveIndexing(property),
       links: { search_console: gscReportLink(property.site_url) },
+    };
+  }
+
+  /**
+   * The Page indexing report rebuilt from URL Inspection results (no upload): for each day,
+   * the latest inspection of every tracked URL up to that day, grouped by Google's coverage
+   * state. It covers the URLs Spider tracks, not every page Google knows.
+   */
+  async liveIndexing(property: Property, days = 90) {
+    const rows: {
+      url_hash: string;
+      d: string;
+      coverage_state: string | null;
+    }[] = await this.db.query(
+      `SELECT url_hash, DATE_FORMAT(inspected_at, '%Y-%m-%d') AS d, coverage_state
+           FROM url_inspections
+          WHERE property_id = ? AND error IS NULL
+          ORDER BY inspected_at ASC, id ASC`,
+      [property.id],
+    );
+    const tracked = await this.tracked.count({
+      where: { property_id: property.id },
+    });
+    if (!rows.length) {
+      return {
+        source: 'url_inspection_api' as const,
+        last_update: null,
+        tracked_urls: tracked,
+        inspected_urls: 0,
+        totals: null,
+        trend: [],
+        reasons: [],
+      };
+    }
+    const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+    const today = iso(Date.now());
+    const first = rows[0].d;
+    const windowStart = iso(Date.now() - (days - 1) * 86_400_000);
+    const start = first > windowStart ? first : windowStart;
+    const impressions = new Map<string, number>(
+      (
+        (await this.db.query(
+          `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS d, impressions FROM daily_metrics WHERE property_id = ? AND date >= ?`,
+          [property.id, start],
+        )) as { d: string; impressions: number }[]
+      ).map((r) => [r.d, Number(r.impressions)]),
+    );
+
+    const state = new Map<string, string>(); // url_hash -> latest coverage state
+    const trend: {
+      date: string;
+      indexed: number;
+      not_indexed: number;
+      impressions: number | null;
+    }[] = [];
+    const perReason = new Map<string, { date: string; pages: number }[]>();
+    let i = 0;
+    const apply = (until: string) => {
+      while (i < rows.length && rows[i].d <= until) {
+        state.set(rows[i].url_hash, rows[i].coverage_state ?? '(no state)');
+        i += 1;
+      }
+    };
+    // inspections older than the window still define the state on its first day
+    for (
+      let t = new Date(`${start}T00:00:00Z`).getTime();
+      iso(t) <= today;
+      t += 86_400_000
+    ) {
+      const day = iso(t);
+      apply(day);
+      const counts = new Map<string, number>();
+      for (const s of state.values()) counts.set(s, (counts.get(s) ?? 0) + 1);
+      let indexed = 0;
+      let notIndexed = 0;
+      for (const [s, n] of counts) {
+        if (isIndexedCoverage(s)) indexed += n;
+        else notIndexed += n;
+      }
+      trend.push({
+        date: day,
+        indexed,
+        not_indexed: notIndexed,
+        impressions: impressions.get(day) ?? null,
+      });
+      for (const s of new Set([...counts.keys(), ...perReason.keys()])) {
+        // a state first seen today had 0 pages on the earlier days of the window
+        const list =
+          perReason.get(s) ??
+          trend.slice(0, -1).map((t) => ({ date: t.date, pages: 0 }));
+        list.push({ date: day, pages: counts.get(s) ?? 0 });
+        perReason.set(s, list);
+      }
+    }
+    const last = trend[trend.length - 1];
+    const reasons = [...perReason.entries()]
+      .map(([reason, series]) => {
+        const indexed = isIndexedCoverage(reason);
+        return {
+          reason,
+          reason_hash: reasonHash(reason),
+          source: reasonSource(reason),
+          group: (indexed ? 'indexed' : 'not_indexed') as
+            'indexed' | 'not_indexed',
+          intent: reasonIntent(reason),
+          validation: null,
+          pages: series[series.length - 1].pages,
+          trend: series,
+        };
+      })
+      .sort((a, b) => b.pages - a.pages);
+    return {
+      source: 'url_inspection_api' as const,
+      last_update: rows[rows.length - 1].d,
+      tracked_urls: tracked,
+      inspected_urls: state.size,
+      totals: { indexed: last.indexed, not_indexed: last.not_indexed },
+      trend,
+      reasons,
     };
   }
 
@@ -368,6 +489,18 @@ export class IndexingService {
       select: ['issue_reason_hash'],
     });
     const withExamples = new Set(issueImports.map((i) => i.issue_reason_hash));
+    // pages per imported report, oldest first: the sparkline of each reason
+    const past = await this.reasons.find({
+      where: { property_id: propertyId, scope_hash: sHash },
+      order: { report_date: 'ASC' },
+      select: ['reason_hash', 'report_date', 'pages'],
+    });
+    const history = new Map<string, { date: string; pages: number }[]>();
+    for (const h of past) {
+      const list = history.get(h.reason_hash) ?? [];
+      list.push({ date: h.report_date, pages: h.pages });
+      history.set(h.reason_hash, list);
+    }
     return current.map((r) => {
       const p = prev.find((x) => x.reason_hash === r.reason_hash);
       return {
@@ -382,6 +515,7 @@ export class IndexingService {
         is_new: previous ? !p : false,
         first_seen: first.get(r.reason_hash) ?? r.report_date,
         has_examples: withExamples.has(r.reason_hash),
+        trend: (history.get(r.reason_hash) ?? []).slice(-30),
       };
     });
   }
@@ -795,6 +929,8 @@ export class IndexingService {
           : null,
         inspected_urls: summary.inspected_urls,
         indexed_urls: summary.indexed_urls,
+        tracked_urls: summary.tracked_urls,
+        running: summary.running,
         last_inspection_run:
           summary.last_run?.finished_at ?? summary.last_run?.started_at ?? null,
         last_run_status: summary.last_run?.status ?? null,
@@ -802,7 +938,12 @@ export class IndexingService {
         sitemaps: summary.sitemaps.length,
       });
     }
-    return { items: out, stale_days: INDEXING_STALE_DAYS };
+    return {
+      items: out,
+      stale_days: INDEXING_STALE_DAYS,
+      batch: this.collector.batchStatus(),
+      daily_budget: this.collector.getDailyBudget(),
+    };
   }
 
   /** Data the opportunities scan and reports need (latest two All-known imports + URL facts). */

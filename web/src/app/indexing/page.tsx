@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "react-toastify";
+import { RefreshCw } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Banner, tdCls, thCls } from "@/components/indexing/parts";
-import { Card, DeltaBadge, EmptyState, ErrorBox, KpiCard, Spinner } from "@/components/ui";
-import { errorMessage, getIndexingFleet } from "@/lib/api";
+import { Button, Card, DeltaBadge, EmptyState, ErrorBox, KpiCard, Spinner } from "@/components/ui";
+import { errorMessage, getIndexingFleet, refreshAllIndexing } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt } from "@/lib/format";
 import { ratioDelta, STOP_REASON_LABELS } from "@/lib/indexing";
 import type { IndexingFleet } from "@/lib/types";
@@ -14,9 +16,41 @@ export default function IndexingFleetPage() {
   const [data, setData] = useState<IndexingFleet | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getIndexingFleet().then(setData).catch((err) => setError(errorMessage(err)));
+  const [starting, setStarting] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await getIndexingFleet());
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // follow a refresh in progress (all properties, or one started from its own page)
+  const busy = !!data && (data.batch !== null || data.items.some((r) => r.running));
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(() => void load(), 8000);
+    return () => clearInterval(t);
+  }, [busy, load]);
+
+  const refreshAll = async () => {
+    setStarting(true);
+    try {
+      const r = await refreshAllIndexing();
+      toast.info(`Refresh started for ${r.properties} properties. They run one after the other.`);
+      await load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setStarting(false);
+    }
+  };
 
   const totals = useMemo(() => {
     const withReport = (data?.items ?? []).filter((r) => r.report_date);
@@ -34,11 +68,22 @@ export default function IndexingFleetPage() {
 
   return (
     <AppShell>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Page indexing</h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted">
-          Indexed and not-indexed pages per property, from the Search Console Page indexing report you upload, plus URL Inspection results for tracked URLs. Google has no API for the full report, so report numbers are as recent as the last export.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Page indexing</h1>
+          <p className="mt-1 max-w-3xl text-sm text-muted">
+            Indexed and not-indexed pages per property, from the Search Console Page indexing report you upload, plus URL Inspection results for tracked URLs. Google has no API for the full report, so report numbers are as recent as the last export.
+          </p>
+        </div>
+        {data && data.items.length > 0 && (
+          <div className="text-right">
+            <Button variant="secondary" onClick={refreshAll} disabled={starting || data.batch !== null}>
+              <RefreshCw className={`h-4 w-4 ${data.batch ? "animate-spin" : ""}`} aria-hidden />
+              {data.batch ? `Refreshing ${Math.min(data.batch.done + 1, data.batch.total)} of ${data.batch.total}…` : "Refresh all properties"}
+            </Button>
+            <div className="mt-1 text-xs text-muted">Sitemaps + up to {formatInt(data.daily_budget)} URL inspections per property. Also runs daily at 05:00.</div>
+          </div>
+        )}
       </div>
 
       {error && <div className="mt-4"><ErrorBox message={error} /></div>}
@@ -131,6 +176,7 @@ export default function IndexingFleetPage() {
                       {r.inspected_urls ? (
                         <>
                           {formatInt(r.inspected_urls)}
+                          <span className="text-muted"> / {formatInt(r.tracked_urls)}</span>
                           <div className="text-xs text-muted">{formatInt(r.indexed_urls)} indexed</div>
                         </>
                       ) : (
@@ -138,12 +184,13 @@ export default function IndexingFleetPage() {
                       )}
                     </td>
                     <td className={tdCls}>
-                      {r.last_inspection_run ? (
+                      {r.running ? (
+                        <span className="rounded-md bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary">Running…</span>
+                      ) : r.last_inspection_run ? (
                         <>
                           <span title={formatDateTime(r.last_inspection_run)}>{formatDate(r.last_inspection_run)}</span>
                           {r.last_run_status === "partial" && <span className="ml-2 rounded-md bg-warning-soft px-1.5 py-0.5 text-xs font-medium text-warning" title={r.stop_reason ? STOP_REASON_LABELS[r.stop_reason] : undefined}>{r.stop_reason === "permission_denied" ? "No access" : r.stop_reason === "quota" ? "Quota" : "Partial"}</span>}
                           {r.last_run_status === "failed" && <span className="ml-2 rounded-md bg-danger-soft px-1.5 py-0.5 text-xs font-medium text-danger">Failed</span>}
-                          {r.last_run_status === "running" && <span className="ml-2 rounded-md bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary">Running</span>}
                         </>
                       ) : (
                         <span className="text-muted">Never</span>

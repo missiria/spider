@@ -560,6 +560,28 @@ export interface IndexingReasonRow {
   is_new: boolean;
   first_seen: string;
   has_examples: boolean;
+  /** pages in each imported report, oldest first */
+  trend?: { date: string; pages: number }[];
+}
+
+/** Page indexing rebuilt from URL Inspection results: automatic, tracked URLs only. */
+export interface LiveIndexing {
+  source: "url_inspection_api";
+  last_update: string | null;
+  tracked_urls: number;
+  inspected_urls: number;
+  totals: { indexed: number; not_indexed: number } | null;
+  trend: IndexingTrendPoint[];
+  reasons: {
+    reason: string;
+    reason_hash: string;
+    source: string;
+    group: "indexed" | "not_indexed";
+    intent: ReasonIntent;
+    validation: string | null;
+    pages: number;
+    trend: { date: string; pages: number }[];
+  }[];
 }
 
 export interface IndexingTrendPoint {
@@ -642,6 +664,7 @@ export interface PropertyIndexing {
   reasons: IndexingReasonRow[];
   imports: IndexingImportRow[];
   inspection: IndexingInspectionSummary;
+  live: LiveIndexing;
   links: { search_console: string };
 }
 
@@ -761,6 +784,8 @@ export interface IndexingFleetRow {
   top_defect: { reason: string; pages: number; reason_hash: string } | null;
   inspected_urls: number;
   indexed_urls: number;
+  tracked_urls: number;
+  running: boolean;
   last_inspection_run: string | null;
   last_run_status: "running" | "ok" | "partial" | "failed" | null;
   stop_reason: "quota" | "permission_denied" | null;
@@ -770,6 +795,9 @@ export interface IndexingFleetRow {
 export interface IndexingFleet {
   items: IndexingFleetRow[];
   stale_days: number;
+  /** "Refresh all" or the daily job in progress */
+  batch: { total: number; done: number; started_at: string } | null;
+  daily_budget: number;
 }
 
 export interface IndexingImportResult {

@@ -6,14 +6,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { ExternalLink, RefreshCw, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { Banner, Crumbs, IntentChip, SourceNote, tdCls, thCls, TrendChart } from "@/components/indexing/parts";
+import { GscReport } from "@/components/indexing/GscReport";
+import { Banner, Crumbs, SourceNote, tdCls, thCls } from "@/components/indexing/parts";
 import { Button, Card, ErrorBox, KpiCard, Spinner } from "@/components/ui";
 import { deleteIndexingImport, errorMessage, getPropertyIndexing, propertyExportUrl, refreshIndexing, uploadIndexingExport } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt } from "@/lib/format";
-import { ALL_KNOWN, GROUP_LABELS, pagesDelta, ratioDelta, scopeFromKey, scopeFromSearch, scopeKey, scopeLabel, scopeQuery, STOP_REASON_LABELS } from "@/lib/indexing";
-import type { IndexingImportResult, IndexingScopeRef, PropertyIndexing, ReasonGroup } from "@/lib/types";
+import { ALL_KNOWN, scopeFromKey, scopeFromSearch, scopeKey, scopeLabel, scopeQuery, STOP_REASON_LABELS } from "@/lib/indexing";
+import type { IndexingImportResult, IndexingScopeRef, PropertyIndexing } from "@/lib/types";
 
-const GROUP_ORDER: ReasonGroup[] = ["not_indexed", "improvement", "indexed"];
 
 export default function PropertyIndexingPage() {
   const params = useParams<{ id: string }>();
@@ -25,6 +25,8 @@ export default function PropertyIndexingPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [lastImport, setLastImport] = useState<IndexingImportResult | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // "live" = rebuilt from URL Inspection (automatic); "export" = an uploaded Search Console report
+  const [mode, setMode] = useState<"live" | "export">("live");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // the scope lives in the URL so a link to this page always shows the same view
@@ -32,10 +34,17 @@ export default function PropertyIndexingPage() {
     setScope(scopeFromSearch(window.location.search));
   }, []);
 
+  const firstLoad = useRef(true);
   const load = useCallback(async () => {
     if (!scope) return;
     try {
-      setData(await getPropertyIndexing(id, scope));
+      const next = await getPropertyIndexing(id, scope);
+      // open on the imported report only when nothing has been inspected yet, or the link asks for a view
+      if (firstLoad.current) {
+        firstLoad.current = false;
+        if ((next.live.inspected_urls === 0 && next.report) || scope.scope !== "all_known") setMode("export");
+      }
+      setData(next);
       setError(null);
     } catch (err) {
       setError(errorMessage(err));
@@ -73,6 +82,7 @@ export default function PropertyIndexingPage() {
         }
       }
       setLastImport(last);
+      setMode("export");
       toast.success(files.length === 1 ? "Export imported" : `${files.length} exports imported`);
       // show the view that was just uploaded
       if (last && last.import.report_kind === "overview") changeScope({ scope: last.import.scope, scope_detail: last.import.scope_detail });
@@ -126,7 +136,14 @@ export default function PropertyIndexingPage() {
           <p className="mt-1 text-sm text-muted">{data?.property.site_url ?? " "}</p>
         </div>
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-          <label className="min-w-0 max-w-full text-sm">
+          <div className="inline-flex rounded-md border border-border bg-surface p-0.5" role="group" aria-label="Data source">
+            {([["live", "Automatic"], ["export", "Imported report"]] as const).map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setMode(value)} aria-pressed={mode === value} className={`rounded px-3 py-1 text-sm ${mode === value ? "bg-primary text-white" : "text-muted hover:text-foreground"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <label className={`min-w-0 max-w-full text-sm ${mode === "export" ? "" : "hidden"}`}>
             <span className="sr-only">Report view</span>
             <select value={scope ? scopeKey(scope) : scopeKey(ALL_KNOWN)} onChange={(e) => changeScope(scopeFromKey(e.target.value))} className="w-full max-w-[18rem] rounded-md border border-border bg-surface px-2 py-1.5 text-sm outline-none focus:border-primary">
               {scopeOptions.map((s) => (
@@ -141,7 +158,7 @@ export default function PropertyIndexingPage() {
               Search Console <ExternalLink className="h-3.5 w-3.5" aria-hidden />
             </a>
           )}
-          {data?.report && scope && (
+          {mode === "export" && data?.report && scope && (
             <a href={propertyExportUrl(id, "csv", "indexing", { scope: scope.scope, sitemap: scope.scope_detail ?? undefined })} className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-muted">
               Export CSV
             </a>
@@ -155,17 +172,17 @@ export default function PropertyIndexingPage() {
       {data && scope && (
         <>
           <div className="mt-4 flex flex-col gap-2">
-            {!data.report && (
+            {mode === "export" && !data.report && (
               <Banner title={`No Page indexing report imported for “${scopeLabel(scope)}”.`}>
                 In Search Console open Indexing → Pages{scope.scope !== "all_known" ? ", choose this view in the top-left filter" : ""}, click Export → Download CSV, and upload the ZIP below. Google offers no API for this report.
               </Banner>
             )}
-            {data.report?.stale && (
+            {mode === "export" && data.report?.stale && (
               <Banner tone="warning" title={`This report is ${data.report.days_old} days old (${data.report.report_date}).`}>
                 Counts, deltas and alerts reflect that date. Upload a fresh export.
               </Banner>
             )}
-            {partialExamples && (
+            {mode === "export" && partialExamples && (
               <Banner title="Some example lists are partial.">
                 Search Console exports at most 1,000 example URLs per reason. Page counts are complete; example lists are not.
               </Banner>
@@ -185,89 +202,34 @@ export default function PropertyIndexingPage() {
             )}
           </div>
 
-          {data.report && (
-            <>
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <KpiCard label="Indexed" value={data.totals?.indexed == null ? "—" : formatInt(data.totals.indexed)} delta={data.totals?.previous_indexed != null ? ratioDelta(data.totals.indexed, data.totals.previous_indexed) : undefined} hint={data.totals?.previous_indexed != null ? `prev ${formatInt(data.totals.previous_indexed)} (${data.totals.previous_date})` : "no earlier report to compare"} />
-                <KpiCard label="Not indexed" value={data.totals?.not_indexed == null ? "—" : formatInt(data.totals.not_indexed)} delta={data.totals?.previous_not_indexed != null ? ratioDelta(data.totals.not_indexed, data.totals.previous_not_indexed) : undefined} lowerIsBetter hint={data.totals?.previous_not_indexed != null ? `prev ${formatInt(data.totals.previous_not_indexed)}` : "all reasons, intentional included"} />
-                <KpiCard label="Likely defects" value={formatInt(data.reasons.filter((r) => r.intent === "likely_defect").reduce((a, r) => a + r.pages, 0))} hint={`${data.reasons.filter((r) => r.intent === "likely_defect").length} reasons`} />
-                <KpiCard label="Report date" value={data.report.report_date} hint={`imported ${formatDate(data.report.imported_at)}`} />
-              </div>
-
-              <Card className="mt-6 p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="font-medium">Indexed and not indexed pages</h2>
-                  <span className="text-xs text-muted">{scopeLabel(scope)}</span>
-                </div>
-                <TrendChart
-                  label="Indexed and not indexed pages over time"
-                  data={data.trend}
-                  series={[
-                    { key: "indexed", name: "Indexed", color: "var(--success)" },
-                    { key: "not_indexed", name: "Not indexed", color: "var(--chart-secondary)" },
-                  ]}
-                />
-                <div className="mt-3">
-                  <SourceNote source="gsc_export">view “{scopeLabel(scope)}” · report of {data.report.report_date} · file {data.report.filename}</SourceNote>
-                </div>
+          {mode === "live" ? (
+            data.live.inspected_urls === 0 ? (
+              <Card className="mt-4 p-8 text-center">
+                <div className="text-lg font-medium">No URL inspected yet</div>
+                <p className="mt-2 text-sm text-muted">Click “Refresh now” below: Spider reads the sitemaps from Search Console and asks Google for the index status of each URL. It then runs every day at 05:00.</p>
               </Card>
-
-              <Card className="mt-6 overflow-x-auto">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-                  <h2 className="font-medium">Reasons</h2>
-                  <span className="text-xs text-muted">Every reason in the report, with Google’s wording. Δ compares with the previous imported report of this view.</span>
-                </div>
-                {data.reasons.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-sm text-muted">The imported report lists no reasons for this view.</div>
-                ) : (
-                  <table className="w-full min-w-[900px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className={thCls}>Reason</th>
-                        <th className={thCls}>Source</th>
-                        <th className={thCls}>Classification</th>
-                        <th className={thCls}>Validation</th>
-                        <th className={`${thCls} text-right`}>Pages</th>
-                        <th className={`${thCls} text-right`}>Δ</th>
-                        <th className={thCls}>First seen</th>
-                      </tr>
-                    </thead>
-                    {GROUP_ORDER.filter((g) => data.reasons.some((r) => r.group === g)).map((g) => (
-                      <tbody key={g}>
-                        <tr className="bg-surface-muted">
-                          <td colSpan={7} className="px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted">
-                            {GROUP_LABELS[g]}
-                          </td>
-                        </tr>
-                        {data.reasons
-                          .filter((r) => r.group === g)
-                          .map((r) => (
-                            <tr key={r.reason_hash} className="border-b border-border/60 last:border-0">
-                              <td className={tdCls}>
-                                <Link href={`/properties/${id}/indexing/reasons/${r.reason_hash}${q}`} className="font-medium hover:text-primary">
-                                  {r.reason}
-                                </Link>
-                                {r.is_new && <span className="ml-2 rounded-md bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary">New</span>}
-                                {!r.has_examples && g !== "indexed" && <div className="text-xs text-muted">No example URLs imported</div>}
-                              </td>
-                              <td className={`${tdCls} text-muted`}>{r.source ?? "—"}</td>
-                              <td className={tdCls}>{g === "indexed" ? <span className="text-muted">—</span> : <IntentChip intent={r.intent} />}</td>
-                              <td className={`${tdCls} text-muted`}>{r.validation ?? "—"}</td>
-                              <td className={`${tdCls} tabular text-right font-medium`}>{formatInt(r.pages)}</td>
-                              <td className={`${tdCls} tabular text-right ${r.previous_pages !== null && r.pages > r.previous_pages && g !== "indexed" ? "text-danger" : r.previous_pages !== null && r.pages < r.previous_pages && g !== "indexed" ? "text-success" : "text-muted"}`}>{pagesDelta(r.pages, r.previous_pages)}</td>
-                              <td className={`${tdCls} tabular text-muted`}>{r.first_seen}</td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    ))}
-                  </table>
-                )}
-                <div className="border-t border-border px-4 py-3">
-                  <SourceNote source="gsc_export">“First seen” is the earliest report imported into Spider that lists the reason, not Google’s first detection date.</SourceNote>
-                </div>
-              </Card>
-            </>
-          )}
+            ) : (
+              <GscReport
+                lastUpdate={data.live.last_update}
+                totals={data.live.totals}
+                trend={data.live.trend}
+                reasons={data.live.reasons}
+                reasonHref={(r) => `/properties/${id}/indexing/urls?coverage=${encodeURIComponent(r.reason)}`}
+                indexedHref={`/properties/${id}/indexing/urls?verdict=PASS`}
+                footnote={<>Automatic · Google URL Inspection API · {formatInt(data.live.inspected_urls)} of {formatInt(data.live.tracked_urls)} tracked URLs inspected (sitemaps and pages with impressions). Search Console’s own report can list more pages, for example noindex or redirected URLs that are in no sitemap.</>}
+                validationNote="Validation status is not available from Google’s API: it appears here only in an imported Search Console export."
+              />
+            )
+          ) : data.report ? (
+            <GscReport
+              lastUpdate={data.report.report_date}
+              totals={data.totals}
+              trend={data.trend}
+              reasons={data.reasons.map((r) => ({ ...r, trend: r.trend ?? [] }))}
+              reasonHref={(r) => `/properties/${id}/indexing/reasons/${r.reason_hash}${q}`}
+              footnote={<>Search Console Page indexing report (uploaded export) · view “{scopeLabel(scope)}” · file {data.report.filename}. Trend = pages in each imported report.</>}
+            />
+          ) : null}
 
           <Card className="mt-6 p-4">
             <h2 className="font-medium">Import a Search Console export</h2>

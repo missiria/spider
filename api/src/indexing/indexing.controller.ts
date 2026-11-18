@@ -78,6 +78,27 @@ export class IndexingController {
     return this.indexing.fleet();
   }
 
+  /** Refresh every connected property of the workspace, one after the other, in the background. */
+  @Post('indexing/refresh')
+  @HttpCode(202)
+  async refreshAll() {
+    if (this.collector.batchStatus()) {
+      throw new ConflictException(
+        'An indexing refresh of all properties is already running',
+      );
+    }
+    const connected = (await this.properties.list()).filter(
+      (p) => p.status === 'connected',
+    );
+    if (!connected.length) {
+      throw new BadRequestException('No connected property to refresh');
+    }
+    void this.collector
+      .refreshMany(connected, (p) => this.opportunities().scanProperty(p.id))
+      .catch(() => undefined);
+    return { started: true, properties: connected.length };
+  }
+
   @Get('properties/:id/indexing')
   property(
     @Param('id', ParseIntPipe) id: number,

@@ -21,15 +21,15 @@ export class IndexingScheduler {
   @Cron('0 5 * * *')
   async daily(): Promise<void> {
     if (this.collector.getDailyBudget() === 0) return;
-    for (const property of await this.properties.findByStatus('connected')) {
-      try {
-        const run = await this.collector.refresh(property);
-        this.logger.log(`indexing ${property.site_url}: ${run.status}`);
-      } catch (err) {
-        this.logger.warn(
-          `indexing ${property.site_url}: ${(err as Error).message}`,
-        );
-      }
+    try {
+      const r = await this.collector.refreshMany(
+        await this.properties.findByStatus('connected'),
+      );
+      this.logger.log(
+        `indexing daily: ${r.ok} ok, ${r.partial} partial, ${r.failed} failed, ${r.skipped} skipped`,
+      );
+    } catch (err) {
+      this.logger.warn(`indexing daily: ${(err as Error).message}`);
     }
   }
 }

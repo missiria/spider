@@ -923,6 +923,54 @@ describe('Spider API (e2e)', () => {
       urls.body.items.some((u: { url: string }) => u.url === `${SITE}pricing/`),
     ).toBe(true);
 
+    // refresh of every connected property: background, one at a time, no double start
+    await http.post('/indexing/refresh').expect(401);
+    const all = await http.post('/indexing/refresh').set(auth()).expect(202);
+    expect(all.body.started).toBe(true);
+    expect(all.body.properties).toBeGreaterThan(0);
+    let batch: unknown = true;
+    for (let i = 0; i < 150 && batch; i += 1) {
+      await new Promise((r) => setTimeout(r, 200));
+      batch = (await http.get('/indexing/overview').set(auth())).body.batch;
+    }
+    expect(batch).toBeNull();
+
+    // the report rebuilt from URL Inspection alone (no upload): same shape as Search Console's screen
+    const live = (
+      await http
+        .get(`/properties/${propertyId}/indexing`)
+        .set(auth())
+        .expect(200)
+    ).body.live;
+    expect(live).toMatchObject({
+      source: 'url_inspection_api',
+      tracked_urls: 7,
+      inspected_urls: 7,
+      totals: { indexed: 4, not_indexed: 3 },
+    });
+    expect(live.trend[live.trend.length - 1]).toMatchObject({
+      indexed: 4,
+      not_indexed: 3,
+    });
+    const liveNotFound = live.reasons.find(
+      (r: { reason: string }) => r.reason === 'Not found (404)',
+    );
+    expect(liveNotFound).toMatchObject({
+      pages: 1,
+      source: 'Website',
+      group: 'not_indexed',
+      validation: null,
+    });
+    expect(liveNotFound.trend[liveNotFound.trend.length - 1].pages).toBe(1);
+    expect(
+      live.reasons.find(
+        (r: { reason: string }) =>
+          r.reason === 'Crawled - currently not indexed',
+      ),
+    ).toMatchObject({ pages: 1, source: 'Google systems' });
+    // imported reasons carry their own trend across reports
+    expect(allKnown.body.reasons[0].trend.length).toBeGreaterThan(0);
+
     // fleet table
     const fleet = await http.get('/indexing/overview').set(auth()).expect(200);
     const row = fleet.body.items.find(
@@ -934,6 +982,7 @@ describe('Spider API (e2e)', () => {
       not_indexed: 130,
       previous_indexed: 850,
     });
+    expect(row).toMatchObject({ running: false, tracked_urls: 7 });
     expect(row.top_defect.reason).toBe('Crawled - currently not indexed');
     // 30 crawled-not-indexed + 10 not found + 2 indexed though blocked by robots.txt
     expect(row.defect_pages).toBe(42);

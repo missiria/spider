@@ -63,6 +63,11 @@ export class IndexingCollectorService implements OnModuleInit {
   private readonly logger = new Logger(IndexingCollectorService.name);
   private readonly inFlight = new Set<number>();
   private readonly dailyBudget: number;
+  /** URL Inspection calls in flight at once for one property (Google allows 600 / minute). */
+  private readonly concurrency: number;
+  /** "Refresh all" / daily batch in progress, in memory like the per-property lock. */
+  private batch: { total: number; done: number; started_at: Date } | null =
+    null;
 
   constructor(
     private readonly gsc: GscService,
@@ -90,6 +95,14 @@ export class IndexingCollectorService implements OnModuleInit {
         Number.isFinite(configured) ? configured : 200,
       ),
     );
+    const parallel = Number.parseInt(
+      config.get<string>('INDEXING_INSPECT_CONCURRENCY') ?? '4',
+      10,
+    );
+    this.concurrency = Math.max(
+      1,
+      Math.min(8, Number.isFinite(parallel) ? parallel : 4),
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -106,6 +119,51 @@ export class IndexingCollectorService implements OnModuleInit {
 
   isRunning(propertyId: number): boolean {
     return this.inFlight.has(propertyId);
+  }
+
+  batchStatus(): { total: number; done: number; started_at: Date } | null {
+    return this.batch ? { ...this.batch } : null;
+  }
+
+  /**
+   * Collection for several properties, one after the other (the daily job and "Refresh all").
+   * A property already being refreshed is skipped. `after` runs once a property is done.
+   */
+  async refreshMany(
+    properties: Property[],
+    after?: (property: Property, run: SyncRun) => Promise<unknown>,
+  ): Promise<{ ok: number; partial: number; failed: number; skipped: number }> {
+    if (this.batch)
+      throw new Error(
+        'An indexing refresh of all properties is already running',
+      );
+    this.batch = { total: properties.length, done: 0, started_at: new Date() };
+    const out = { ok: 0, partial: 0, failed: 0, skipped: 0 };
+    try {
+      for (const property of properties) {
+        try {
+          if (this.inFlight.has(property.id)) {
+            out.skipped += 1;
+          } else {
+            const run = await this.refresh(property);
+            if (run.status === 'ok') out.ok += 1;
+            else if (run.status === 'partial') out.partial += 1;
+            else out.failed += 1;
+            this.logger.log(`indexing ${property.site_url}: ${run.status}`);
+            if (after) await after(property, run).catch(() => undefined);
+          }
+        } catch (err) {
+          out.failed += 1;
+          this.logger.warn(
+            `indexing ${property.site_url}: ${(err as Error).message}`,
+          );
+        }
+        this.batch.done += 1;
+      }
+    } finally {
+      this.batch = null;
+    }
+    return out;
   }
 
   getDailyBudget(): number {
@@ -168,11 +226,29 @@ export class IndexingCollectorService implements OnModuleInit {
         details.stop_reason = 'quota';
       }
       const queue = await this.pickQueue(property.id, details.budget);
-      for (const t of queue) {
-        const saved = await this.inspectOne(property, t.url);
-        if (saved.error) details.inspect_errors += 1;
-        else details.inspected += 1;
-      }
+      // a small pool of workers: one inspection takes several seconds at Google's end.
+      // The first quota / permission stop ends the pool; results already stored are kept.
+      let next = 0;
+      let stop: unknown = null;
+      const worker = async (): Promise<void> => {
+        while (!stop && next < queue.length) {
+          const t = queue[next];
+          next += 1;
+          try {
+            const saved = await this.inspectOne(property, t.url);
+            if (saved.error) details.inspect_errors += 1;
+            else details.inspected += 1;
+          } catch (err) {
+            stop = stop ?? err;
+          }
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(this.concurrency, queue.length) }, () =>
+          worker(),
+        ),
+      );
+      if (stop) throw stop;
       run.status =
         details.stop_reason || details.sitemap_errors.length ? 'partial' : 'ok';
     } catch (err) {
