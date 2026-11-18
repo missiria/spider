@@ -19,7 +19,10 @@ import { IndexingTrend } from './entities/indexing-trend.entity';
 import { TrackedUrl } from './entities/tracked-url.entity';
 import { UrlInspection } from './entities/url-inspection.entity';
 import { ExportParseError, parseIndexingExport } from './export-parser';
-import { IndexingCollectorService } from './indexing-collector.service';
+import {
+  belongsTo,
+  IndexingCollectorService,
+} from './indexing-collector.service';
 import {
   gscInspectLink,
   gscReportLink,
@@ -100,7 +103,7 @@ export class IndexingService {
       ? reasonHash(parsed.issue_reason)
       : null;
 
-    return this.db.transaction(async (m) => {
+    const saved = await this.db.transaction(async (m) => {
       // same view, same report date: replace (re-uploading is idempotent)
       const prior = await m.find(IndexingImport, {
         where: {
@@ -181,6 +184,15 @@ export class IndexingService {
       }
       return { import: imp, replaced: sameIssue.length > 0 };
     });
+    // example URLs of a reason (for instance the 404 list) are in no sitemap: track them, so
+    // the next refreshes inspect them and the automatic view shows the reason too
+    for (const e of parsed.examples) {
+      if (belongsTo(e.url, property.site_url))
+        await this.collector
+          .ensureTracked(property.id, e.url.slice(0, 2048), {})
+          .catch(() => undefined);
+    }
+    return saved;
   }
 
   async deleteImport(propertyId: number, importId: number): Promise<void> {
@@ -870,12 +882,40 @@ export class IndexingService {
     }
   }
 
+  /** Latest inspection of every tracked URL, counted per property and coverage state. */
+  private async liveCounts(): Promise<
+    Map<number, { coverage_state: string; urls: number }[]>
+  > {
+    const rows: {
+      property_id: number;
+      coverage_state: string | null;
+      n: string;
+    }[] = await this.db.query(
+      `SELECT i.property_id, i.coverage_state, COUNT(*) AS n
+           FROM url_inspections i
+           JOIN (SELECT MAX(id) AS id FROM url_inspections WHERE error IS NULL GROUP BY property_id, url_hash) l ON l.id = i.id
+          GROUP BY i.property_id, i.coverage_state`,
+    );
+    const out = new Map<number, { coverage_state: string; urls: number }[]>();
+    for (const r of rows) {
+      const list = out.get(r.property_id) ?? [];
+      list.push({
+        coverage_state: r.coverage_state ?? '(no state)',
+        urls: Number(r.n),
+      });
+      out.set(r.property_id, list);
+    }
+    return out;
+  }
+
   /** Fleet table: one row per connected property, All known pages scope. */
   async fleet() {
     const props = (await this.properties.list()).filter(
       (p) => p.status !== 'revoked',
     );
     const sHash = scopeHash('all_known', null);
+    const liveByProperty = await this.liveCounts();
+    const fleetReasons = new Map<string, number>();
     const out = [];
     for (const p of props) {
       const list = await this.overviewImports(p.id, sHash);
@@ -902,7 +942,35 @@ export class IndexingService {
       const topDefect =
         reasons.find((r) => reasonIntent(r.reason) === 'likely_defect') ?? null;
       const summary = await this.inspectionSummary(p);
+      // automatic view: what URL Inspection says for the URLs tracked on this property
+      const states = liveByProperty.get(p.id) ?? [];
+      const notIndexedStates = states
+        .filter((x) => !isIndexedCoverage(x.coverage_state))
+        .sort((a, b) => b.urls - a.urls);
+      const critical = notIndexedStates.filter(
+        (x) => reasonIntent(x.coverage_state) === 'likely_defect',
+      );
+      for (const x of notIndexedStates)
+        fleetReasons.set(
+          x.coverage_state,
+          (fleetReasons.get(x.coverage_state) ?? 0) + x.urls,
+        );
       out.push({
+        live: states.length
+          ? {
+              indexed: states
+                .filter((x) => isIndexedCoverage(x.coverage_state))
+                .reduce((a, x) => a + x.urls, 0),
+              not_indexed: notIndexedStates.reduce((a, x) => a + x.urls, 0),
+              critical: critical.reduce((a, x) => a + x.urls, 0),
+              top_critical: critical[0]
+                ? {
+                    reason: critical[0].coverage_state,
+                    pages: critical[0].urls,
+                  }
+                : null,
+            }
+          : null,
         property: {
           id: p.id,
           site_url: p.site_url,
@@ -941,6 +1009,14 @@ export class IndexingService {
     return {
       items: out,
       stale_days: INDEXING_STALE_DAYS,
+      // not-indexed URLs of the whole fleet by Google reason (URL Inspection)
+      reasons: [...fleetReasons.entries()]
+        .map(([reason, pages]) => ({
+          reason,
+          pages,
+          intent: reasonIntent(reason),
+        }))
+        .sort((a, b) => b.pages - a.pages),
       batch: this.collector.batchStatus(),
       daily_budget: this.collector.getDailyBudget(),
     };

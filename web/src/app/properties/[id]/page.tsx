@@ -21,6 +21,7 @@ import {
   Search,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { IndexingAlert } from "@/components/indexing/IndexingAlert";
 import { CountryMap } from "@/components/CountryMap";
 import { ExportMenu, type ExportMenuItem } from "@/components/ExportMenu";
 import { copyText, toTsv, topRowsTable } from "@/lib/exportTable";
@@ -743,6 +744,8 @@ export default function PropertyPage() {
           </Button>
         </div>
       </div>
+
+      {p.status === "connected" && <IndexingAlert propertyId={p.id} />}
 
       {p.status === "pending" && (
         <Card className="mt-4 border-warning/30 bg-warning-soft p-4 text-sm">

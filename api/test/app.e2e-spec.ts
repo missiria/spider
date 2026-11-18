@@ -873,18 +873,26 @@ describe('Spider API (e2e)', () => {
     expect(summary.last_run.details).toMatchObject({
       sitemaps: 1,
       sitemap_urls: 6,
-      inspected: 6,
       stop_reason: null,
     });
+    // every page Search Analytics ever reported is tracked, not only the last 28 days
+    expect(summary.last_run.details.gsc_pages).toBeGreaterThan(0);
+    expect(summary.last_run.details.inspected).toBeGreaterThan(6);
     expect(summary.sitemaps).toHaveLength(1);
     expect(summary.sitemaps[0]).toMatchObject({
       path: `${SITE}sitemap.xml`,
       urls_read: 6,
       urls_truncated: false,
     });
-    expect(summary.tracked_urls).toBe(7);
-    expect(summary.inspected_urls).toBe(7);
+    // 6 sitemap URLs + the on-demand one + the 10 example URLs of the imported 404 export
+    expect(summary.tracked_urls).toBeGreaterThanOrEqual(17);
+    expect(summary.inspected_urls).toBe(summary.tracked_urls);
     expect(summary.indexed_urls).toBe(4);
+    const exampleUrls = await http
+      .get(`/properties/${propertyId}/indexing/urls?search=gone-`)
+      .set(auth())
+      .expect(200);
+    expect(exampleUrls.body.total).toBe(10);
     expect(
       summary.by_coverage.find(
         (c: { coverage_state: string }) =>
@@ -942,16 +950,13 @@ describe('Spider API (e2e)', () => {
         .set(auth())
         .expect(200)
     ).body.live;
-    expect(live).toMatchObject({
-      source: 'url_inspection_api',
-      tracked_urls: 7,
-      inspected_urls: 7,
-      totals: { indexed: 4, not_indexed: 3 },
-    });
-    expect(live.trend[live.trend.length - 1]).toMatchObject({
+    expect(live.source).toBe('url_inspection_api');
+    expect(live.inspected_urls).toBe(live.tracked_urls);
+    expect(live.totals).toEqual({
       indexed: 4,
-      not_indexed: 3,
+      not_indexed: live.inspected_urls - 4,
     });
+    expect(live.trend[live.trend.length - 1]).toMatchObject(live.totals);
     const liveNotFound = live.reasons.find(
       (r: { reason: string }) => r.reason === 'Not found (404)',
     );
@@ -982,7 +987,15 @@ describe('Spider API (e2e)', () => {
       not_indexed: 130,
       previous_indexed: 850,
     });
-    expect(row).toMatchObject({ running: false, tracked_urls: 7 });
+    expect(row.running).toBe(false);
+    // automatic totals of the fleet table: 1 "Not found (404)" + 1 "Crawled - currently not indexed"
+    expect(row.live).toMatchObject({ indexed: 4, critical: 2 });
+    expect(row.live.not_indexed).toBe(row.tracked_urls - 4);
+    expect(
+      fleet.body.reasons.find(
+        (r: { reason: string }) => r.reason === 'Not found (404)',
+      ),
+    ).toMatchObject({ pages: 1, intent: 'likely_defect' });
     expect(row.top_defect.reason).toBe('Crawled - currently not indexed');
     // 30 crawled-not-indexed + 10 not found + 2 indexed though blocked by robots.txt
     expect(row.defect_pages).toBe(42);

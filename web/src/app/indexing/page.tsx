@@ -5,17 +5,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { RefreshCw } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ChartLegend, IndexRing, ReasonBars, SplitBar } from "@/components/indexing/charts";
 import { Banner, tdCls, thCls } from "@/components/indexing/parts";
-import { Button, Card, DeltaBadge, EmptyState, ErrorBox, KpiCard, Spinner } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorBox, KpiCard, Spinner } from "@/components/ui";
 import { errorMessage, getIndexingFleet, refreshAllIndexing } from "@/lib/api";
 import { formatDate, formatDateTime, formatInt } from "@/lib/format";
-import { ratioDelta, STOP_REASON_LABELS } from "@/lib/indexing";
+import { STOP_REASON_LABELS } from "@/lib/indexing";
 import type { IndexingFleet } from "@/lib/types";
 
 export default function IndexingFleetPage() {
   const [data, setData] = useState<IndexingFleet | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const [starting, setStarting] = useState(false);
 
   const load = useCallback(async () => {
@@ -53,35 +53,36 @@ export default function IndexingFleetPage() {
   };
 
   const totals = useMemo(() => {
-    const withReport = (data?.items ?? []).filter((r) => r.report_date);
+    const items = data?.items ?? [];
+    const withData = items.filter((r) => r.live);
     return {
-      withReport: withReport.length,
-      indexed: withReport.reduce((a, r) => a + (r.indexed ?? 0), 0),
-      notIndexed: withReport.reduce((a, r) => a + (r.not_indexed ?? 0), 0),
-      defects: withReport.reduce((a, r) => a + r.defect_pages, 0),
-      stale: withReport.filter((r) => r.stale).length,
-      inspected: (data?.items ?? []).reduce((a, r) => a + r.inspected_urls, 0),
+      withData: withData.length,
+      indexed: withData.reduce((a, r) => a + (r.live?.indexed ?? 0), 0),
+      notIndexed: withData.reduce((a, r) => a + (r.live?.not_indexed ?? 0), 0),
+      critical: withData.reduce((a, r) => a + (r.live?.critical ?? 0), 0),
+      tracked: items.reduce((a, r) => a + r.tracked_urls, 0),
+      inspected: items.reduce((a, r) => a + r.inspected_urls, 0),
     };
   }, [data]);
 
-  const missing = data ? data.items.length - totals.withReport : 0;
+  // most critical first, then the properties still waiting for their first inspection
+  const rows = useMemo(() => [...(data?.items ?? [])].sort((a, b) => Number(!!b.live) - Number(!!a.live) || (b.live?.critical ?? 0) - (a.live?.critical ?? 0) || (b.live?.not_indexed ?? 0) - (a.live?.not_indexed ?? 0) || a.property.display_name.localeCompare(b.property.display_name)), [data]);
+  const waiting = data ? data.items.length - totals.withData : 0;
 
   return (
     <AppShell>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Page indexing</h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted">
-            Indexed and not-indexed pages per property, from the Search Console Page indexing report you upload, plus URL Inspection results for tracked URLs. Google has no API for the full report, so report numbers are as recent as the last export.
-          </p>
+          <p className="mt-1 max-w-3xl text-sm text-muted">What Google says about the pages of every property: indexed, not indexed and why. Filled automatically from Google’s URL Inspection for the URLs in your sitemaps and the pages that get impressions.</p>
         </div>
         {data && data.items.length > 0 && (
           <div className="text-right">
-            <Button variant="secondary" onClick={refreshAll} disabled={starting || data.batch !== null}>
+            <Button onClick={refreshAll} disabled={starting || data.batch !== null}>
               <RefreshCw className={`h-4 w-4 ${data.batch ? "animate-spin" : ""}`} aria-hidden />
               {data.batch ? `Refreshing ${Math.min(data.batch.done + 1, data.batch.total)} of ${data.batch.total}…` : "Refresh all properties"}
             </Button>
-            <div className="mt-1 text-xs text-muted">Sitemaps + up to {formatInt(data.daily_budget)} URL inspections per property. Also runs daily at 05:00.</div>
+            <div className="mt-1 text-xs text-muted">Up to {formatInt(data.daily_budget)} URL inspections per property per day. Also runs daily at 05:00.</div>
           </div>
         )}
       </div>
@@ -97,105 +98,112 @@ export default function IndexingFleetPage() {
 
       {data && data.items.length > 0 && (
         <>
+          {waiting > 0 && (
+            <div className="mt-4">
+              <Banner tone={totals.withData === 0 ? "warning" : "info"} title={`${waiting} of ${data.items.length} properties have not been inspected yet.`}>
+                {data.batch ? "The refresh in progress is filling them one after the other; this page updates by itself." : "Click “Refresh all properties”. Totals below only count the properties already inspected."}
+              </Banner>
+            </div>
+          )}
+
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard label="Indexed pages" value={formatInt(totals.indexed)} hint={`${totals.withReport} of ${data.items.length} properties have a report`} />
-            <KpiCard label="Not indexed" value={formatInt(totals.notIndexed)} hint="all reasons, intentional ones included" />
-            <KpiCard label="Likely defects" value={formatInt(totals.defects)} hint="pages under a reason classified as a defect" />
-            <KpiCard label="URLs inspected" value={formatInt(totals.inspected)} hint="URL Inspection API, latest result per URL" />
+            <KpiCard label="Indexed pages" value={formatInt(totals.indexed)} hint={`${totals.withData} of ${data.items.length} properties inspected`} />
+            <KpiCard label="Not indexed" value={formatInt(totals.notIndexed)} hint="all reasons, intended ones included" />
+            <Card className={`p-4 ${totals.critical > 0 ? "border-danger/40 bg-danger-soft" : ""}`}>
+              <div className={`text-xs font-medium uppercase tracking-wide ${totals.critical > 0 ? "text-danger" : "text-muted"}`}>Critical</div>
+              <div className={`tabular mt-1 text-2xl font-semibold ${totals.critical > 0 ? "text-danger" : ""}`}>{formatInt(totals.critical)}</div>
+              <div className="mt-1 text-xs text-muted">pages Google could not index because of an error or a quality signal</div>
+            </Card>
+            <KpiCard label="URLs inspected" value={`${formatInt(totals.inspected)} / ${formatInt(totals.tracked)}`} hint="inspected / tracked (sitemaps + pages with impressions)" />
           </div>
 
-          <div className="mt-4 flex flex-col gap-2">
-            {missing > 0 && (
-              <Banner title={`${missing} ${missing === 1 ? "property has" : "properties have"} no Page indexing report yet.`}>
-                Open the property and upload the export from Search Console → Indexing → Pages → Export. Totals above only count properties with a report.
-              </Banner>
-            )}
-            {totals.stale > 0 && (
-              <Banner tone="warning" title={`${totals.stale} ${totals.stale === 1 ? "report is" : "reports are"} older than ${data.stale_days} days.`}>
-                Upload a fresh export to keep counts and alerts current.
-              </Banner>
-            )}
-          </div>
+          {totals.withData > 0 && (
+            <div className="mt-6 grid gap-6 lg:grid-cols-5">
+              <Card className="p-4 lg:col-span-2">
+                <h2 className="font-medium">Index rate</h2>
+                <div className="mt-4 flex items-center gap-5">
+                  <IndexRing indexed={totals.indexed} total={totals.indexed + totals.notIndexed} />
+                  <div className="min-w-0 flex-1 space-y-2 text-sm">
+                    <div className="flex justify-between gap-3"><span className="text-muted">Indexed</span><span className="tabular font-medium text-success">{formatInt(totals.indexed)}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted">Critical</span><span className="tabular font-medium text-danger">{formatInt(totals.critical)}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted">Other not indexed</span><span className="tabular font-medium">{formatInt(totals.notIndexed - totals.critical)}</span></div>
+                    <SplitBar indexed={totals.indexed} critical={totals.critical} other={totals.notIndexed - totals.critical} />
+                  </div>
+                </div>
+              </Card>
+              <Card className="p-4 lg:col-span-3">
+                <h2 className="font-medium">Why pages aren’t indexed, all properties</h2>
+                <p className="mb-3 text-xs text-muted">Red = needs a fix. Grey = usually intended (redirects, noindex, canonical).</p>
+                <ReasonBars rows={data.reasons.map((r) => ({ reason: r.reason, pages: r.pages, critical: r.intent === "likely_defect" }))} empty="Every inspected page is indexed." />
+              </Card>
+            </div>
+          )}
 
           <Card className="mt-6 overflow-x-auto">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <h2 className="font-medium">Per property</h2>
+              <ChartLegend />
+            </div>
             <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className={thCls}>Property</th>
+                  <th className={`${thCls} w-[22%]`}>Pages</th>
                   <th className={`${thCls} text-right`}>Indexed</th>
                   <th className={`${thCls} text-right`}>Not indexed</th>
-                  <th className={thCls}>Top likely defect</th>
-                  <th className={thCls}>Report date</th>
-                  <th className={`${thCls} text-right`}>Inspected URLs</th>
-                  <th className={thCls}>Last inspection run</th>
+                  <th className={`${thCls} text-right`}>Critical</th>
+                  <th className={thCls}>Top critical reason</th>
+                  <th className={thCls}>Inspected</th>
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((r) => (
-                  <tr key={r.property.id} className="border-b border-border/60 last:border-0">
+                {rows.map((r) => (
+                  <tr key={r.property.id} className="border-b border-border/60 last:border-0 hover:bg-surface-muted">
                     <td className={tdCls}>
                       <Link href={`/properties/${r.property.id}/indexing`} className="font-medium hover:text-primary">
                         {r.property.display_name}
                       </Link>
                       <div className="text-xs text-muted">{r.property.site_url}</div>
                     </td>
-                    <td className={`${tdCls} tabular text-right`}>
-                      {r.indexed === null ? "—" : formatInt(r.indexed)}
-                      {ratioDelta(r.indexed, r.previous_indexed) !== null && (
-                        <div className="mt-0.5"><DeltaBadge value={ratioDelta(r.indexed, r.previous_indexed)} /></div>
-                      )}
-                    </td>
-                    <td className={`${tdCls} tabular text-right`}>
-                      {r.not_indexed === null ? "—" : formatInt(r.not_indexed)}
-                      {ratioDelta(r.not_indexed, r.previous_not_indexed) !== null && (
-                        <div className="mt-0.5"><DeltaBadge value={ratioDelta(r.not_indexed, r.previous_not_indexed)} lowerIsBetter /></div>
-                      )}
-                    </td>
-                    <td className={tdCls}>
-                      {r.top_defect ? (
-                        <Link href={`/properties/${r.property.id}/indexing/reasons/${r.top_defect.reason_hash}`} className="hover:text-primary">
-                          {r.top_defect.reason} <span className="tabular text-muted">· {formatInt(r.top_defect.pages)}</span>
-                        </Link>
-                      ) : r.report_date ? (
-                        <span className="text-muted">None</span>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                    <td className={tdCls}>
-                      {r.report_date ? (
-                        <>
-                          <span className="tabular">{r.report_date}</span>
-                          {r.stale && <span className="ml-2 rounded-md bg-warning-soft px-1.5 py-0.5 text-xs font-medium text-warning">Stale</span>}
-                        </>
-                      ) : (
-                        <span className="rounded-md bg-surface-muted px-1.5 py-0.5 text-xs text-muted">No report</span>
-                      )}
-                    </td>
-                    <td className={`${tdCls} tabular text-right`}>
-                      {r.inspected_urls ? (
-                        <>
-                          {formatInt(r.inspected_urls)}
-                          <span className="text-muted"> / {formatInt(r.tracked_urls)}</span>
-                          <div className="text-xs text-muted">{formatInt(r.indexed_urls)} indexed</div>
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
+                    {r.live ? (
+                      <>
+                        <td className={`${tdCls} align-middle`}>
+                          <SplitBar indexed={r.live.indexed} critical={r.live.critical} other={r.live.not_indexed - r.live.critical} />
+                        </td>
+                        <td className={`${tdCls} tabular text-right`}>{formatInt(r.live.indexed)}</td>
+                        <td className={`${tdCls} tabular text-right`}>{formatInt(r.live.not_indexed)}</td>
+                        <td className={`${tdCls} tabular text-right font-semibold ${r.live.critical > 0 ? "text-danger" : "text-muted"}`}>{formatInt(r.live.critical)}</td>
+                        <td className={tdCls}>
+                          {r.live.top_critical ? (
+                            <Link href={`/properties/${r.property.id}/indexing/urls?coverage=${encodeURIComponent(r.live.top_critical.reason)}`} className="text-danger hover:underline">
+                              {r.live.top_critical.reason} <span className="tabular">· {formatInt(r.live.top_critical.pages)}</span>
+                            </Link>
+                          ) : (
+                            <span className="text-success">None</span>
+                          )}
+                        </td>
+                      </>
+                    ) : (
+                      <td className={`${tdCls} text-muted`} colSpan={5}>
+                        {r.running ? "First inspection in progress…" : "Not inspected yet. Use Refresh all properties, or open the property and click Refresh now."}
+                      </td>
+                    )}
                     <td className={tdCls}>
                       {r.running ? (
                         <span className="rounded-md bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary">Running…</span>
                       ) : r.last_inspection_run ? (
                         <>
-                          <span title={formatDateTime(r.last_inspection_run)}>{formatDate(r.last_inspection_run)}</span>
-                          {r.last_run_status === "partial" && <span className="ml-2 rounded-md bg-warning-soft px-1.5 py-0.5 text-xs font-medium text-warning" title={r.stop_reason ? STOP_REASON_LABELS[r.stop_reason] : undefined}>{r.stop_reason === "permission_denied" ? "No access" : r.stop_reason === "quota" ? "Quota" : "Partial"}</span>}
-                          {r.last_run_status === "failed" && <span className="ml-2 rounded-md bg-danger-soft px-1.5 py-0.5 text-xs font-medium text-danger">Failed</span>}
+                          <span className="tabular">{formatInt(r.inspected_urls)} / {formatInt(r.tracked_urls)}</span>
+                          <div className="text-xs text-muted" title={formatDateTime(r.last_inspection_run)}>
+                            {formatDate(r.last_inspection_run)}
+                            {r.last_run_status === "partial" && <span className="ml-1 text-warning" title={r.stop_reason ? STOP_REASON_LABELS[r.stop_reason] : undefined}>· {r.stop_reason === "permission_denied" ? "no access" : r.stop_reason === "quota" ? "quota reached" : "partial"}</span>}
+                            {r.last_run_status === "failed" && <span className="ml-1 text-danger">· failed</span>}
+                          </div>
+                          {r.sitemaps === 0 && <div className="text-xs text-warning">No sitemap in Search Console</div>}
                         </>
                       ) : (
                         <span className="text-muted">Never</span>
                       )}
-                      {r.sitemaps === 0 && r.last_inspection_run && <div className="text-xs text-warning">No sitemap submitted in Search Console</div>}
                     </td>
                   </tr>
                 ))}
@@ -203,7 +211,7 @@ export default function IndexingFleetPage() {
             </table>
           </Card>
           <p className="mt-3 text-xs text-muted">
-            Report columns: “All known pages” view of each property’s latest uploaded export. Inspection columns: Spider’s tracked URLs only (sitemaps and pages with impressions), not Google’s full list of known pages.
+            Source: Google URL Inspection API, latest result per tracked URL. Tracked URLs are not every page Google knows, so Search Console’s own totals can be higher. Upload a Search Console export on a property’s page to see Google’s full report and validation status.
           </p>
         </>
       )}

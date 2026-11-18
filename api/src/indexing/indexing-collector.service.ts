@@ -432,16 +432,23 @@ export class IndexingCollectorService implements OnModuleInit {
     }
   }
 
+  /**
+   * Pages Search Analytics has ever reported for the property (all stored history, not only the
+   * last 28 days): a page that used to get impressions and is now gone is exactly what Google
+   * reports as "Not found (404)" or "Page with redirect", so it must stay tracked.
+   */
   private async collectGscPages(property: Property): Promise<number> {
-    const end = new Date();
-    const start = new Date(end.getTime() - 28 * 86_400_000)
+    const start = new Date(Date.now() - 28 * 86_400_000)
       .toISOString()
       .slice(0, 10);
-    const rows: { key_text: string; impressions: string }[] = await this.dims
+    const rows: { key_text: string; recent: string }[] = await this.dims
       .createQueryBuilder('d')
       .select('d.key_text', 'key_text')
-      .addSelect('SUM(d.impressions)', 'impressions')
-      .where('d.property_id = :p AND d.dimension = :dim AND d.date >= :start', {
+      .addSelect(
+        'SUM(CASE WHEN d.date >= :start THEN d.impressions ELSE 0 END)',
+        'recent',
+      )
+      .where('d.property_id = :p AND d.dimension = :dim', {
         p: property.id,
         dim: 'page',
         start,
@@ -449,13 +456,13 @@ export class IndexingCollectorService implements OnModuleInit {
       .groupBy('d.key_hash')
       .addGroupBy('d.key_text')
       .having('SUM(d.impressions) > 0')
-      .orderBy('impressions', 'DESC')
-      .limit(2000)
+      .orderBy('recent', 'DESC')
+      .limit(5000)
       .getRawMany();
     for (const r of rows) {
       await this.upsertTracked(property.id, r.key_text, {
         in_gsc_pages: true,
-        impressions_28d: Number(r.impressions),
+        impressions_28d: Number(r.recent),
       });
     }
     return rows.length;

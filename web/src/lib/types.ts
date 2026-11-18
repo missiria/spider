@@ -774,6 +774,13 @@ export interface IndexingLiveCheck {
 
 export interface IndexingFleetRow {
   property: IndexingPropertyRef & { status: PropertyStatus };
+  /** automatic view (URL Inspection of tracked URLs); null until the first refresh */
+  live: {
+    indexed: number;
+    not_indexed: number;
+    critical: number;
+    top_critical: { reason: string; pages: number } | null;
+  } | null;
   report_date: string | null;
   stale: boolean | null;
   indexed: number | null;
@@ -795,6 +802,8 @@ export interface IndexingFleetRow {
 export interface IndexingFleet {
   items: IndexingFleetRow[];
   stale_days: number;
+  /** not-indexed URLs of all properties by Google reason (URL Inspection) */
+  reasons: { reason: string; pages: number; intent: ReasonIntent }[];
   /** "Refresh all" or the daily job in progress */
   batch: { total: number; done: number; started_at: string } | null;
   daily_budget: number;

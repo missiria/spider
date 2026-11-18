@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ChartLegend, IndexRing, ReasonBars, SplitBar } from "@/components/indexing/charts";
 import { Card } from "@/components/ui";
 import { formatInt, shortDate } from "@/lib/format";
 import type { ReasonGroup } from "@/lib/types";
@@ -22,6 +23,8 @@ export interface GscReasonRow {
   pages: number;
   trend: { date: string; pages: number }[];
   is_new?: boolean;
+  /** a reason Spider classifies as a likely defect: shown in red */
+  critical?: boolean;
 }
 
 export interface GscTrendPoint {
@@ -90,11 +93,12 @@ function ReasonsTable({ rows, href }: { rows: GscReasonRow[]; href: (r: GscReaso
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.reason_hash} className="border-b border-border/60 last:border-0 hover:bg-surface-muted">
-              <td className="px-4 py-3">
-                <Link href={href(r)} className="font-medium hover:text-primary">
+            <tr key={r.reason_hash} className={`border-b border-border/60 last:border-0 hover:bg-surface-muted ${r.critical && r.pages > 0 ? "bg-danger-soft/40" : ""}`}>
+              <td className={`px-4 py-3 ${r.critical && r.pages > 0 ? "border-l-4 border-danger" : "border-l-4 border-transparent"}`}>
+                <Link href={href(r)} className={`font-medium ${r.critical && r.pages > 0 ? "text-danger hover:underline" : "hover:text-primary"}`}>
                   {r.reason}
                 </Link>
+                {r.critical && r.pages > 0 && <span className="ml-2 rounded-md bg-danger px-1.5 py-0.5 text-xs font-medium text-white">Critical</span>}
                 {r.is_new && <span className="ml-2 rounded-md bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary">New</span>}
               </td>
               <td className="px-4 py-3 text-muted">{r.source ?? "—"}</td>
@@ -104,7 +108,7 @@ function ReasonsTable({ rows, href }: { rows: GscReasonRow[]; href: (r: GscReaso
               <td className="px-4 py-3">
                 <Sparkline points={r.trend.map((t) => t.pages)} label={`Trend of ${r.reason}`} />
               </td>
-              <td className="tabular px-4 py-3 text-right font-medium">{formatInt(r.pages)}</td>
+              <td className={`tabular px-4 py-3 text-right font-medium ${r.critical && r.pages > 0 ? "text-danger" : ""}`}>{formatInt(r.pages)}</td>
               <td className="px-2 py-3 text-right text-muted">
                 <Link href={href(r)} aria-label={`Open ${r.reason}`} className="inline-flex rounded p-1 hover:text-primary">
                   <ChevronRight className="h-4 w-4" aria-hidden />
@@ -144,6 +148,9 @@ export function GscReport({
   const notIndexed = reasons.filter((r) => r.group === "not_indexed");
   const improvement = reasons.filter((r) => r.group === "improvement");
   const toggle = (k: keyof typeof show) => setShow((s) => ({ ...s, [k]: !s[k] }));
+  const criticalPages = notIndexed.filter((r) => r.critical).reduce((a, r) => a + r.pages, 0);
+  // critical reasons first, like an inbox: what needs a fix is on top
+  const ordered = [...notIndexed].sort((a, b) => Number(!!b.critical && b.pages > 0) - Number(!!a.critical && a.pages > 0) || b.pages - a.pages);
 
   return (
     <>
@@ -191,12 +198,38 @@ export function GscReport({
         </div>
       </Card>
 
+      {totals && (totals.indexed ?? 0) + (totals.not_indexed ?? 0) > 0 && (
+        <div className="mt-6 grid gap-6 lg:grid-cols-5">
+          <Card className="p-4 lg:col-span-2">
+            <h2 className="font-medium">Index rate</h2>
+            <div className="mt-4 flex items-center gap-5">
+              <IndexRing indexed={totals.indexed ?? 0} total={(totals.indexed ?? 0) + (totals.not_indexed ?? 0)} />
+              <div className="min-w-0 flex-1 space-y-2 text-sm">
+                <div className="flex justify-between gap-3"><span className="text-muted">Indexed</span><span className="tabular font-medium text-success">{formatInt(totals.indexed)}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-muted">Critical</span><span className="tabular font-medium text-danger">{formatInt(criticalPages)}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-muted">Other not indexed</span><span className="tabular font-medium">{formatInt(Math.max(0, (totals.not_indexed ?? 0) - criticalPages))}</span></div>
+                <SplitBar indexed={totals.indexed ?? 0} critical={criticalPages} other={Math.max(0, (totals.not_indexed ?? 0) - criticalPages)} />
+              </div>
+            </div>
+            <div className="mt-4"><ChartLegend /></div>
+          </Card>
+          <Card className="p-4 lg:col-span-3">
+            <h2 className="font-medium">Not indexed by reason</h2>
+            <p className="mb-3 text-xs text-muted">Red = needs a fix. Grey = usually intended (redirects, noindex, canonical).</p>
+            <ReasonBars rows={ordered.map((r) => ({ reason: r.reason, pages: r.pages, critical: !!r.critical }))} href={(reason) => { const row = ordered.find((x) => x.reason === reason); return row ? reasonHref(row) : "#"; }} empty="Every page in this view is indexed." />
+          </Card>
+        </div>
+      )}
+
       <Card className="mt-6">
         <div className="border-b border-border px-4 py-3">
           <h2 className="font-medium">Why pages aren’t indexed</h2>
-          <p className="text-xs text-muted">Pages that aren’t indexed can’t be served on Google</p>
+          <p className="text-xs text-muted">
+            Pages that aren’t indexed can’t be served on Google
+            {criticalPages > 0 && <span className="font-medium text-danger"> · {formatInt(criticalPages)} page{criticalPages === 1 ? "" : "s"} under a critical reason (in red): fix these first</span>}
+          </p>
         </div>
-        {notIndexed.length === 0 ? <div className="px-4 py-8 text-center text-sm text-muted">No reason reported: every page in this view is indexed.</div> : <ReasonsTable rows={notIndexed} href={reasonHref} />}
+        {notIndexed.length === 0 ? <div className="px-4 py-8 text-center text-sm text-muted">No reason reported: every page in this view is indexed.</div> : <ReasonsTable rows={ordered} href={reasonHref} />}
         {validationNote && <p className="border-t border-border px-4 py-3 text-xs text-muted">{validationNote}</p>}
       </Card>
 

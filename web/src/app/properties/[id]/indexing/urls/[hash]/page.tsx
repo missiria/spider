@@ -93,7 +93,12 @@ export default function IndexingUrlPage() {
               <a href={data.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-muted">
                 Open page <ExternalLink className="h-3.5 w-3.5" aria-hidden />
               </a>
-              <Button onClick={inspect} disabled={inspecting}>
+              {l && !l.error && l.verdict !== "PASS" && (
+                <a href={data.links.inspect} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-hover">
+                  Request indexing in Search Console <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </a>
+              )}
+              <Button variant="secondary" onClick={inspect} disabled={inspecting}>
                 <RefreshCw className={`h-4 w-4 ${inspecting ? "animate-spin" : ""}`} aria-hidden />
                 {inspecting ? "Asking Google…" : "Inspect now"}
               </Button>

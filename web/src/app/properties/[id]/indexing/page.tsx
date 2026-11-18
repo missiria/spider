@@ -213,7 +213,7 @@ export default function PropertyIndexingPage() {
                 lastUpdate={data.live.last_update}
                 totals={data.live.totals}
                 trend={data.live.trend}
-                reasons={data.live.reasons}
+                reasons={data.live.reasons.map((r) => ({ ...r, critical: r.intent === "likely_defect" }))}
                 reasonHref={(r) => `/properties/${id}/indexing/urls?coverage=${encodeURIComponent(r.reason)}`}
                 indexedHref={`/properties/${id}/indexing/urls?verdict=PASS`}
                 footnote={<>Automatic · Google URL Inspection API · {formatInt(data.live.inspected_urls)} of {formatInt(data.live.tracked_urls)} tracked URLs inspected (sitemaps and pages with impressions). Search Console’s own report can list more pages, for example noindex or redirected URLs that are in no sitemap.</>}
@@ -225,7 +225,7 @@ export default function PropertyIndexingPage() {
               lastUpdate={data.report.report_date}
               totals={data.totals}
               trend={data.trend}
-              reasons={data.reasons.map((r) => ({ ...r, trend: r.trend ?? [] }))}
+              reasons={data.reasons.map((r) => ({ ...r, trend: r.trend ?? [], critical: r.intent === "likely_defect" }))}
               reasonHref={(r) => `/properties/${id}/indexing/reasons/${r.reason_hash}${q}`}
               footnote={<>Search Console Page indexing report (uploaded export) · view “{scopeLabel(scope)}” · file {data.report.filename}. Trend = pages in each imported report.</>}
             />

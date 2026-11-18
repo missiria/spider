@@ -94,3 +94,8 @@ export function pathOf(url: string): string {
     return url;
   }
 }
+
+/** Search Console's URL Inspection screen for one URL: the only place to click "Request indexing". */
+export function gscInspectUrl(siteUrl: string, url: string): string {
+  return `https://search.google.com/search-console/inspect?resource_id=${encodeURIComponent(siteUrl)}&id=${encodeURIComponent(url)}`;
+}

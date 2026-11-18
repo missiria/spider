@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
-import { Search } from "lucide-react";
+import { ExternalLink, Search } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { Crumbs, SourceNote, tdCls, thCls, VerdictChip } from "@/components/indexing/parts";
+import { Banner, Crumbs, SourceNote, tdCls, thCls, VerdictChip } from "@/components/indexing/parts";
 import { Button, Card, ErrorBox, Spinner } from "@/components/ui";
 import { errorMessage, getPropertyIndexing, inspectIndexingUrl, listIndexingUrls, type IndexingUrlFilter } from "@/lib/api";
 import { formatDate, formatInt } from "@/lib/format";
-import { pathOf } from "@/lib/indexing";
+import { gscInspectUrl, isIndexedCoverage, pathOf } from "@/lib/indexing";
 import type { IndexingUrlList, PropertyIndexing } from "@/lib/types";
 
 export default function IndexingUrlsPage() {
@@ -116,6 +116,14 @@ export default function IndexingUrlsPage() {
         {data && <span className="ml-auto text-xs text-muted">{formatInt(data.total)} URL{data.total === 1 ? "" : "s"}</span>}
       </div>
 
+      {filter?.coverage && !isIndexedCoverage(filter.coverage) && (
+        <div className="mt-4">
+          <Banner tone="warning" title={`${data ? formatInt(data.total) : "These"} URL${data?.total === 1 ? " is" : "s are"} “${filter.coverage}”.`}>
+            Google’s API cannot submit a URL for indexing. Fix the page if needed, then use “Request indexing” on each row: it opens the URL in Search Console, where you click Request indexing (about 10 requests per day per property).
+          </Banner>
+        </div>
+      )}
+
       {error && <div className="mt-4"><ErrorBox message={error} /></div>}
       {!data && !error && <Spinner />}
 
@@ -126,7 +134,7 @@ export default function IndexingUrlsPage() {
               {data.total === 0 && !filter?.coverage && !filter?.verdict && !filter?.search && !filter?.in_sitemap ? "No tracked URLs yet. Run a refresh on the property’s indexing page, or inspect a URL above." : "No URL matches these filters."}
             </div>
           ) : (
-            <table className="w-full min-w-[960px] text-sm">
+            <table className="w-full min-w-[1100px] text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className={thCls}>URL</th>
@@ -136,6 +144,7 @@ export default function IndexingUrlsPage() {
                   <th className={thCls}>Inspected</th>
                   <th className={`${thCls} text-right`}>Impr. 28 d</th>
                   <th className={thCls}>Tracked from</th>
+                  <th className={thCls}><span className="sr-only">Search Console</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -154,6 +163,18 @@ export default function IndexingUrlsPage() {
                     <td className={`${tdCls} whitespace-nowrap text-muted`}>{formatDate(u.inspected_at)}</td>
                     <td className={`${tdCls} tabular text-right`}>{u.impressions_28d ? formatInt(u.impressions_28d) : "—"}</td>
                     <td className={`${tdCls} text-xs text-muted`}>{[Number(u.in_sitemap) ? "Sitemap" : null, Number(u.in_gsc_pages) ? "Search results" : null, Number(u.user_added) ? "Added" : null].filter(Boolean).join(" · ") || "—"}</td>
+                    <td className={`${tdCls} whitespace-nowrap text-right`}>
+                      {summary &&
+                        (u.inspected_at && !isIndexedCoverage(u.coverage_state) ? (
+                          <a href={gscInspectUrl(summary.property.site_url, u.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-white hover:bg-primary-hover">
+                            Request indexing <ExternalLink className="h-3 w-3" aria-hidden />
+                          </a>
+                        ) : (
+                          <a href={gscInspectUrl(summary.property.site_url, u.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                            Open in Search Console <ExternalLink className="h-3 w-3" aria-hidden />
+                          </a>
+                        ))}
+                    </td>
                   </tr>
                 ))}
               </tbody>
