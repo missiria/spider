@@ -21,7 +21,7 @@ export interface MetricDelta {
 
 export interface SyncRun {
   id: number;
-  kind: "backfill" | "incremental" | "top";
+  kind: "backfill" | "incremental" | "top" | "indexing";
   status: "running" | "ok" | "partial" | "failed";
   started_at: string;
   finished_at: string | null;
@@ -222,7 +222,12 @@ export type OpportunityRule =
   | "impressions_drop"
   | "low_ctr"
   | "near_page_one"
-  | "cannibalization";
+  | "cannibalization"
+  | "indexing_new_reason"
+  | "indexing_spike"
+  | "indexed_drop"
+  | "submitted_not_indexed"
+  | "indexing_persistent";
 export type OpportunityStatus = "open" | "in_progress" | "done" | "dismissed";
 export type OpportunityPriority = "low" | "medium" | "high";
 export type OpportunitySubject = "property" | "page" | "query";
@@ -317,6 +322,23 @@ export interface RuleConfig {
     min_impressions: number;
     min_share: number;
   };
+  indexing_new_reason: { enabled: boolean; min_pages: number };
+  indexing_spike: {
+    enabled: boolean;
+    min_increase_pages: number;
+    min_increase_ratio: number;
+  };
+  indexed_drop: {
+    enabled: boolean;
+    min_previous_indexed: number;
+    drop_ratio: number;
+  };
+  submitted_not_indexed: { enabled: boolean; max_items: number };
+  indexing_persistent: {
+    enabled: boolean;
+    min_imports: number;
+    min_pages: number;
+  };
   regression_days: number;
 }
 
@@ -327,7 +349,8 @@ export type ReportSection =
   | "countries"
   | "devices"
   | "search_appearance"
-  | "opportunities";
+  | "opportunities"
+  | "indexing";
 
 export interface ReportConfig {
   period: { days?: number; start?: string; end?: string };
@@ -494,4 +517,299 @@ export interface ReportData {
         rule: string;
       }[]
     | null;
+  /** Page indexing section (MITP-0833): absent on reports without it */
+  indexing?: {
+    blocks: IndexingReportBlock[];
+    opportunities: {
+      id: number;
+      priority: string;
+      title: string;
+      property: string;
+      confidence: string;
+      rule: string;
+    }[];
+  } | null;
+}
+
+// ---- Page indexing (MITP-0833) ---------------------------------------------
+
+export type IndexingScope = "all_known" | "submitted" | "sitemap";
+export type ReasonIntent = "likely_defect" | "intentional" | "review";
+export type ReasonGroup = "not_indexed" | "indexed" | "improvement";
+
+export interface IndexingPropertyRef {
+  id: number;
+  site_url: string;
+  display_name: string;
+}
+
+export interface IndexingScopeRef {
+  scope: IndexingScope;
+  scope_detail: string | null;
+}
+
+export interface IndexingReasonRow {
+  reason: string;
+  reason_hash: string;
+  source: string | null;
+  group: ReasonGroup;
+  intent: ReasonIntent;
+  validation: string | null;
+  pages: number;
+  previous_pages: number | null;
+  is_new: boolean;
+  first_seen: string;
+  has_examples: boolean;
+}
+
+export interface IndexingTrendPoint {
+  date: string;
+  indexed: number | null;
+  not_indexed: number | null;
+  impressions: number | null;
+}
+
+export interface IndexingImportRow {
+  id: number;
+  report_kind: "overview" | "issue";
+  scope: IndexingScope;
+  scope_detail: string | null;
+  issue_reason: string | null;
+  report_date: string;
+  filename: string;
+  reason_rows: number;
+  example_rows: number;
+  examples_partial: boolean;
+  created_at: string;
+}
+
+export interface IndexingSitemap {
+  path: string;
+  last_submitted: string | null;
+  last_downloaded: string | null;
+  is_pending: boolean;
+  warnings: number;
+  errors: number;
+  contents: { type?: string; submitted?: number | string }[];
+  urls_read: number | null;
+  urls_truncated: boolean;
+  fetch_error: string | null;
+  fetched_at: string;
+}
+
+export interface IndexingInspectionSummary {
+  inspected_urls: number;
+  indexed_urls: number;
+  tracked_urls: number;
+  by_coverage: { coverage_state: string; verdict: string | null; urls: number }[];
+  daily_budget: number;
+  used_today: number;
+  running: boolean;
+  last_run: {
+    status: "running" | "ok" | "partial" | "failed";
+    started_at: string;
+    finished_at: string | null;
+    error: string | null;
+    stop_reason: "quota" | "permission_denied" | null;
+    details: Record<string, unknown> | null;
+  } | null;
+  sitemaps: IndexingSitemap[];
+  source: "url_inspection_api";
+}
+
+export interface PropertyIndexing {
+  property: IndexingPropertyRef;
+  scope: IndexingScopeRef;
+  scopes: (IndexingScopeRef & { scope_hash: string; last_report_date: string })[];
+  report: {
+    import_id: number;
+    report_date: string;
+    filename: string;
+    imported_at: string;
+    stale: boolean;
+    days_old: number;
+    source: "gsc_export";
+  } | null;
+  totals: {
+    date: string;
+    indexed: number | null;
+    not_indexed: number | null;
+    previous_indexed: number | null;
+    previous_not_indexed: number | null;
+    previous_date: string | null;
+  } | null;
+  trend: IndexingTrendPoint[];
+  reasons: IndexingReasonRow[];
+  imports: IndexingImportRow[];
+  inspection: IndexingInspectionSummary;
+  links: { search_console: string };
+}
+
+export interface IndexingReasonDetail {
+  property: IndexingPropertyRef;
+  scope: IndexingScopeRef;
+  reason: string;
+  reason_hash: string;
+  intent: ReasonIntent;
+  source: string | null;
+  group: ReasonGroup | null;
+  history: { report_date: string; pages: number; validation: string | null }[];
+  first_seen: string | null;
+  issue_export: {
+    import_id: number;
+    report_date: string;
+    examples_partial: boolean;
+    example_rows: number;
+  } | null;
+  trend: { date: string; pages: number | null }[];
+  examples: { url: string; last_crawled: string | null; inspect_link: string }[];
+  links: { search_console: string };
+}
+
+export interface IndexingUrlRow {
+  url: string;
+  url_hash: string;
+  in_sitemap: number | boolean;
+  sitemap: string | null;
+  in_gsc_pages: number | boolean;
+  impressions_28d: number | null;
+  user_added: number | boolean;
+  last_inspected_at: string | null;
+  inspected_at: string | null;
+  verdict: string | null;
+  coverage_state: string | null;
+  indexing_state: string | null;
+  robots_txt_state: string | null;
+  page_fetch_state: string | null;
+  last_crawl_time: string | null;
+  google_canonical: string | null;
+  user_canonical: string | null;
+  error: string | null;
+}
+
+export interface IndexingUrlList {
+  total: number;
+  page: number;
+  page_size: number;
+  items: IndexingUrlRow[];
+  source: "url_inspection_api";
+}
+
+export interface IndexingUrlDetail {
+  property: IndexingPropertyRef;
+  url: string;
+  url_hash: string;
+  tracked: {
+    in_sitemap: boolean;
+    sitemap: string | null;
+    in_gsc_pages: boolean;
+    impressions_28d: number | null;
+    user_added: boolean;
+    last_inspected_at: string | null;
+  } | null;
+  latest: {
+    inspected_at: string;
+    verdict: string | null;
+    coverage_state: string | null;
+    indexing_state: string | null;
+    robots_txt_state: string | null;
+    page_fetch_state: string | null;
+    crawled_as: string | null;
+    last_crawl_time: string | null;
+    google_canonical: string | null;
+    user_canonical: string | null;
+    sitemaps: string[] | null;
+    referring_urls: string[] | null;
+    raw: unknown;
+    error: string | null;
+  } | null;
+  history: {
+    inspected_at: string;
+    verdict: string | null;
+    coverage_state: string | null;
+    last_crawl_time: string | null;
+    google_canonical: string | null;
+    error: string | null;
+  }[];
+  links: { inspect: string };
+  source: "url_inspection_api";
+}
+
+export interface IndexingLiveCheck {
+  url: string;
+  checked_at: string;
+  final_url?: string;
+  final_status?: number | null;
+  hops: { url: string; status: number; location: string | null }[];
+  robots?: string | null;
+  canonical?: string | null;
+  ms?: number;
+  error?: string;
+  note?: string;
+  source: "live_http";
+}
+
+export interface IndexingFleetRow {
+  property: IndexingPropertyRef & { status: PropertyStatus };
+  report_date: string | null;
+  stale: boolean | null;
+  indexed: number | null;
+  not_indexed: number | null;
+  previous_indexed: number | null;
+  previous_not_indexed: number | null;
+  defect_pages: number;
+  top_defect: { reason: string; pages: number; reason_hash: string } | null;
+  inspected_urls: number;
+  indexed_urls: number;
+  last_inspection_run: string | null;
+  last_run_status: "running" | "ok" | "partial" | "failed" | null;
+  stop_reason: "quota" | "permission_denied" | null;
+  sitemaps: number;
+}
+
+export interface IndexingFleet {
+  items: IndexingFleetRow[];
+  stale_days: number;
+}
+
+export interface IndexingImportResult {
+  import: IndexingImportRow & { trend_rows: number };
+  replaced: boolean;
+  opportunities: { findings: number; created: number; updated: number; skipped: number } | null;
+}
+
+export interface IndexingReportBlock {
+  property: IndexingPropertyRef;
+  view: string;
+  source: string;
+  report_date: string | null;
+  stale: boolean;
+  days_old: number | null;
+  completeness: string;
+  totals: {
+    indexed: number | null;
+    not_indexed: number | null;
+    previous_indexed: number | null;
+    previous_not_indexed: number | null;
+    previous_date: string | null;
+  } | null;
+  reasons: {
+    reason: string;
+    source: string | null;
+    group: string;
+    intent: string;
+    validation: string | null;
+    pages: number;
+    previous_pages: number | null;
+    first_seen: string;
+  }[];
+  trend: { date: string; indexed: number | null; not_indexed: number | null }[];
+  inspection: {
+    tracked_urls: number;
+    inspected_urls: number;
+    indexed_urls: number;
+    last_run_at: string | null;
+    last_run_status: string | null;
+    stop_reason: string | null;
+  };
 }

@@ -190,6 +190,7 @@ export class ReportsController {
       periodOf(q),
       filtersOf(q),
       PROPERTY_CSV_ROWS,
+      { scope: q.scope, sitemap: q.sitemap },
     );
     const out = this.reports.csv(data, section);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -212,6 +213,7 @@ export class ReportsController {
       periodOf(q),
       filtersOf(q),
       PROPERTY_CSV_ROWS,
+      { scope: q.scope, sitemap: q.sitemap },
     );
     const out = await this.reports.pdf(data);
     res.setHeader('Content-Type', 'application/pdf');

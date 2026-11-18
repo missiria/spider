@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GscModule } from '../gsc/gsc.module';
+import { IndexingModule } from '../indexing/indexing.module';
 import { DailyMetric } from '../metrics/entities/daily-metric.entity';
 import { DimensionMetric } from '../metrics/entities/dimension-metric.entity';
 import { PropertiesModule } from '../properties/properties.module';
@@ -24,6 +25,7 @@ import { OpportunitiesService } from './opportunities.service';
     PropertiesModule,
     WorkspacesModule,
     GscModule,
+    IndexingModule,
   ],
   providers: [OpportunitiesService, OpportunitiesScheduler],
   controllers: [OpportunitiesController],

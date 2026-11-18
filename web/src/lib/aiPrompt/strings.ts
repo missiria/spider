@@ -73,6 +73,20 @@ export interface PromptStrings {
     googleLink: string;
     pageLink: string;
     scanner: string;
+    indexingSource: string;
+    sourceExport: string;
+    sourceInspection: string;
+    reportDate: string;
+    googleReason: string;
+    pagesAffected: string;
+    indexedPages: string;
+    exampleUrls: string;
+    examplesPartial: string;
+    coverageState: string;
+    inspectedAt: string;
+    sitemap: string;
+    consecutiveReports: string;
+    searchConsoleLink: string;
   };
   rules: Record<OpportunityRule, string>;
   unknownRule: string;
@@ -147,6 +161,22 @@ export const STRINGS: Record<PromptLang, PromptStrings> = {
       googleLink: "Google results for this query on the site",
       pageLink: "Page",
       scanner: "Scanner",
+      indexingSource: "Data source",
+      sourceExport:
+        "Search Console Page indexing report (export uploaded to Spider)",
+      sourceInspection: "Search Console URL Inspection API (Google index)",
+      reportDate: "Report date",
+      googleReason: "Google reason",
+      pagesAffected: "Pages affected",
+      indexedPages: "Indexed pages",
+      exampleUrls: "Example URLs",
+      examplesPartial:
+        "partial list: Search Console exports at most 1,000 examples",
+      coverageState: "Google coverage state",
+      inspectedAt: "Inspected on",
+      sitemap: "Sitemap",
+      consecutiveReports: "Consecutive reports with this issue",
+      searchConsoleLink: "Search Console",
     },
     rules: {
       clicks_drop: "Clicks drop",
@@ -154,6 +184,11 @@ export const STRINGS: Record<PromptLang, PromptStrings> = {
       low_ctr: "Low CTR",
       near_page_one: "Near page one",
       cannibalization: "Cannibalization",
+      indexing_new_reason: "New indexing issue",
+      indexing_spike: "Indexing issue growing",
+      indexed_drop: "Indexed pages drop",
+      submitted_not_indexed: "Sitemap URL not indexed",
+      indexing_persistent: "Indexing issue not fixed",
     },
     unknownRule: "Other",
     statuses: {
@@ -262,6 +297,23 @@ export const STRINGS: Record<PromptLang, PromptStrings> = {
       googleLink: "Résultats Google pour cette requête sur le site",
       pageLink: "Page",
       scanner: "Scanner",
+      indexingSource: "Source des données",
+      sourceExport:
+        "Rapport Indexation des pages de la Search Console (export importé dans Spider)",
+      sourceInspection:
+        "API Inspection d’URL de la Search Console (index Google)",
+      reportDate: "Date du rapport",
+      googleReason: "Motif Google",
+      pagesAffected: "Pages concernées",
+      indexedPages: "Pages indexées",
+      exampleUrls: "Exemples d’URL",
+      examplesPartial:
+        "liste partielle : la Search Console exporte au plus 1 000 exemples",
+      coverageState: "État de couverture Google",
+      inspectedAt: "Inspectée le",
+      sitemap: "Sitemap",
+      consecutiveReports: "Rapports consécutifs avec ce problème",
+      searchConsoleLink: "Search Console",
     },
     rules: {
       clicks_drop: "Baisse de clics",
@@ -269,6 +321,11 @@ export const STRINGS: Record<PromptLang, PromptStrings> = {
       low_ctr: "CTR faible",
       near_page_one: "Proche de la première page",
       cannibalization: "Cannibalisation",
+      indexing_new_reason: "Nouveau problème d’indexation",
+      indexing_spike: "Problème d’indexation en hausse",
+      indexed_drop: "Baisse des pages indexées",
+      submitted_not_indexed: "URL de sitemap non indexée",
+      indexing_persistent: "Problème d’indexation non corrigé",
     },
     unknownRule: "Autre",
     statuses: {

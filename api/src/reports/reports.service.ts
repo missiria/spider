@@ -28,6 +28,8 @@ import {
   ReportSection,
 } from './entities/report.entity';
 import { buildReportDocument } from './report-pdf';
+import { IndexingService } from '../indexing/indexing.service';
+import { INDEXING_RULES } from '../opportunities/entities/opportunity.entity';
 import { parseBrand } from '../workspaces/brand';
 import { nextRunAt, parseRecipients, periodKey, toCsv } from './report.util';
 
@@ -43,6 +45,50 @@ export interface ReportTable {
   note: string | null;
   rows: KeyTotals[];
 }
+
+/**
+ * Page indexing of one property for a report (MITP-0833, ADR-0009). Report-wide numbers come
+ * from the uploaded Search Console export of ONE view; URL Inspection numbers cover Spider's
+ * tracked URLs only. Every export prints `source`, `report_date` and `completeness`.
+ */
+export interface IndexingReportBlock {
+  property: { id: number; display_name: string; site_url: string };
+  view: string;
+  source: string;
+  report_date: string | null;
+  stale: boolean;
+  days_old: number | null;
+  completeness: string;
+  totals: {
+    indexed: number | null;
+    not_indexed: number | null;
+    previous_indexed: number | null;
+    previous_not_indexed: number | null;
+    previous_date: string | null;
+  } | null;
+  reasons: {
+    reason: string;
+    source: string | null;
+    group: string;
+    intent: string;
+    validation: string | null;
+    pages: number;
+    previous_pages: number | null;
+    first_seen: string;
+  }[];
+  trend: { date: string; indexed: number | null; not_indexed: number | null }[];
+  inspection: {
+    tracked_urls: number;
+    inspected_urls: number;
+    indexed_urls: number;
+    last_run_at: string | null;
+    last_run_status: string | null;
+    stop_reason: string | null;
+  };
+}
+
+export const INDEXING_SOURCE =
+  'Search Console Page indexing report (uploaded export)';
 
 export interface ReportData {
   report_id: number;
@@ -86,6 +132,18 @@ export interface ReportData {
         rule: string;
       }[]
     | null;
+  /** absent on reports without the indexing section */
+  indexing?: {
+    blocks: IndexingReportBlock[];
+    opportunities: {
+      id: number;
+      priority: string;
+      title: string;
+      property: string;
+      confidence: string;
+      rule: string;
+    }[];
+  } | null;
 }
 
 /** Tables of the property page that have an Export menu (MISS-0171). */
@@ -95,6 +153,9 @@ export const PROPERTY_EXPORT_SECTIONS = [
   'countries',
   'devices',
   'search_appearance',
+  // Page indexing page (MITP-0833): reasons + totals, and the chart rows
+  'indexing',
+  'indexing_trend',
 ] as const;
 export type PropertyExportSection = (typeof PROPERTY_EXPORT_SECTIONS)[number];
 export interface PropertyExportFilters {
@@ -107,7 +168,7 @@ export interface PropertyExportFilters {
 }
 
 const SECTION_TITLES: Record<
-  Exclude<ReportSection, 'overview' | 'opportunities'>,
+  Exclude<ReportSection, 'overview' | 'opportunities' | 'indexing'>,
   { title: string; keyLabel: string; dimension: Dimension }
 > = {
   pages: { title: 'Top pages', keyLabel: 'Page', dimension: 'page' },
@@ -135,6 +196,7 @@ export class ReportsService {
     private readonly deliveries: Repository<ReportDelivery>,
     private readonly overview: OverviewService,
     private readonly opportunities: OpportunitiesService,
+    private readonly indexing: IndexingService,
     private readonly properties: PropertiesService,
     private readonly workspaces: WorkspacesService,
     private readonly mailer: MailerService,
@@ -271,6 +333,15 @@ export class ReportsService {
       if (cfg.sections.includes('opportunities')) {
         base.opportunities = await this.openOpportunities(undefined, cfg.limit);
       }
+      if (cfg.sections.includes('indexing')) {
+        const blocks: IndexingReportBlock[] = [];
+        for (const p of fleet.items)
+          blocks.push(await this.indexingBlock(p.id, cfg.limit));
+        base.indexing = {
+          blocks,
+          opportunities: await this.indexingOpportunities(undefined, cfg.limit),
+        };
+      }
       return base;
     }
 
@@ -288,8 +359,44 @@ export class ReportsService {
     period: { days?: number; start?: string; end?: string },
     filters: PropertyExportFilters,
     rowLimit: number,
+    view: { scope?: string; sitemap?: string } = {},
   ): Promise<ReportData> {
     const property = await this.properties.get(propertyId); // tenant-scoped: 404 outside the workspace
+    if (section === 'indexing' || section === 'indexing_trend') {
+      const block = await this.indexingBlock(
+        property.id,
+        rowLimit,
+        view.scope,
+        view.sitemap,
+      );
+      const today = new Date().toISOString().slice(0, 10);
+      const day = block.report_date ?? today;
+      return {
+        report_id: 0,
+        title: `${property.display_name} · Page indexing`,
+        scope: 'property',
+        property: {
+          id: property.id,
+          display_name: property.display_name,
+          site_url: property.site_url,
+        },
+        generated_at: new Date().toISOString(),
+        data_through: block.report_date,
+        period: { start: block.trend[0]?.date ?? day, end: day },
+        previousPeriod: { start: day, end: day },
+        notes: null,
+        overview: null,
+        tables: [],
+        opportunities: null,
+        indexing: {
+          blocks: [block],
+          opportunities: await this.indexingOpportunities(
+            property.id,
+            rowLimit,
+          ),
+        },
+      };
+    }
     const meta = SECTION_TITLES[section];
     const base: ReportData = {
       report_id: 0,
@@ -354,7 +461,12 @@ export class ReportsService {
       };
     }
     for (const section of cfg.sections) {
-      if (section === 'overview' || section === 'opportunities') continue;
+      if (
+        section === 'overview' ||
+        section === 'opportunities' ||
+        section === 'indexing'
+      )
+        continue;
       const meta = SECTION_TITLES[section];
       const b = detail.breakdowns[meta.dimension];
       const cov = b?.coverage.clicks;
@@ -395,7 +507,105 @@ export class ReportsService {
     if (cfg.sections.includes('opportunities')) {
       base.opportunities = await this.openOpportunities(property.id, cfg.limit);
     }
+    if (cfg.sections.includes('indexing')) {
+      base.indexing = {
+        blocks: [await this.indexingBlock(property.id, cfg.limit)],
+        opportunities: await this.indexingOpportunities(property.id, cfg.limit),
+      };
+    }
     return base;
+  }
+
+  /** One property's Page indexing summary for one report view (default: All known pages). */
+  private async indexingBlock(
+    propertyId: number,
+    limit: number,
+    scope?: string,
+    sitemap?: string,
+  ): Promise<IndexingReportBlock> {
+    const d = await this.indexing.propertyIndexing(propertyId, scope, sitemap);
+    const view =
+      d.scope.scope === 'submitted'
+        ? 'All submitted pages'
+        : d.scope.scope === 'sitemap'
+          ? `Sitemap: ${d.scope.scope_detail ?? ''}`
+          : 'All known pages';
+    const insp = d.inspection;
+    const parts: string[] = [];
+    if (!d.report)
+      parts.push(
+        'No Page indexing report imported for this view: no report-wide counts',
+      );
+    else {
+      parts.push(
+        `Report-wide counts as exported on ${d.report.report_date}; example URL lists are capped at 1,000 rows per reason by Search Console`,
+      );
+      if (d.report.stale)
+        parts.push(`STALE: the report is ${d.report.days_old} days old`);
+      if (d.reasons.length > limit)
+        parts.push(`first ${limit} of ${d.reasons.length} reasons`);
+    }
+    parts.push(
+      insp.tracked_urls
+        ? `URL Inspection: ${insp.inspected_urls} of ${insp.tracked_urls} tracked URLs inspected (tracked URLs are not all pages Google knows)`
+        : 'URL Inspection: no tracked URLs yet',
+    );
+    if (insp.last_run?.stop_reason === 'quota')
+      parts.push('last inspection run stopped at the daily quota');
+    if (insp.last_run?.stop_reason === 'permission_denied')
+      parts.push('last inspection run was refused by Search Console (403)');
+    const at = insp.last_run?.finished_at ?? insp.last_run?.started_at ?? null;
+    return {
+      property: d.property,
+      view,
+      source: INDEXING_SOURCE,
+      report_date: d.report?.report_date ?? null,
+      stale: d.report?.stale ?? false,
+      days_old: d.report?.days_old ?? null,
+      completeness: parts.join(' · '),
+      totals: d.totals
+        ? {
+            indexed: d.totals.indexed,
+            not_indexed: d.totals.not_indexed,
+            previous_indexed: d.totals.previous_indexed,
+            previous_not_indexed: d.totals.previous_not_indexed,
+            previous_date: d.totals.previous_date,
+          }
+        : null,
+      reasons: d.reasons.slice(0, limit).map((r) => ({
+        reason: r.reason,
+        source: r.source,
+        group: r.group,
+        intent: r.intent,
+        validation: r.validation,
+        pages: r.pages,
+        previous_pages: r.previous_pages,
+        first_seen: r.first_seen,
+      })),
+      trend: d.trend.map((t) => ({
+        date: t.date,
+        indexed: t.indexed,
+        not_indexed: t.not_indexed,
+      })),
+      inspection: {
+        tracked_urls: insp.tracked_urls,
+        inspected_urls: insp.inspected_urls,
+        indexed_urls: insp.indexed_urls,
+        last_run_at: at ? new Date(at).toISOString() : null,
+        last_run_status: insp.last_run?.status ?? null,
+        stop_reason: insp.last_run?.stop_reason ?? null,
+      },
+    };
+  }
+
+  private async indexingOpportunities(
+    propertyId: number | undefined,
+    limit: number,
+  ) {
+    const all = await this.openOpportunities(propertyId, 10_000);
+    return all
+      .filter((o) => (INDEXING_RULES as readonly string[]).includes(o.rule))
+      .slice(0, limit);
   }
 
   private async openOpportunities(
@@ -492,6 +702,109 @@ export class ReportsService {
             o.title,
             `${this.publicUrl}/opportunities/${o.id}`,
           ]),
+        ),
+      };
+    }
+    if (section === 'indexing' || section === 'indexing_trend') {
+      if (!data.indexing)
+        throw new BadRequestException('Section not in this report');
+      // every row repeats the view, report date, source and completeness of its numbers
+      const meta = (b: IndexingReportBlock) => [
+        b.property.site_url,
+        b.view,
+        b.report_date,
+        b.source,
+        b.completeness,
+      ];
+      const head = ['site', 'view', 'report_date', 'source', 'completeness'];
+      const day = new Date().toISOString().slice(0, 10);
+      if (section === 'indexing_trend')
+        return {
+          filename: `${slug}-indexing-trend-${day}.csv`,
+          content: toCsv(
+            [...head, 'date', 'indexed', 'not_indexed'],
+            data.indexing.blocks.flatMap((b) =>
+              b.trend.map((t) => [
+                ...meta(b),
+                t.date,
+                t.indexed,
+                t.not_indexed,
+              ]),
+            ),
+          ),
+        };
+      const rows: (string | number | null)[][] = [];
+      for (const b of data.indexing.blocks) {
+        if (b.totals) {
+          rows.push([
+            ...meta(b),
+            'total',
+            'indexed',
+            'Indexed',
+            null,
+            null,
+            null,
+            b.totals.indexed,
+            b.totals.previous_indexed,
+            null,
+          ]);
+          rows.push([
+            ...meta(b),
+            'total',
+            'not_indexed',
+            'Not indexed',
+            null,
+            null,
+            null,
+            b.totals.not_indexed,
+            b.totals.previous_not_indexed,
+            null,
+          ]);
+        } else if (!b.reasons.length) {
+          // a property without a report still appears, with its completeness note
+          rows.push([
+            ...meta(b),
+            'none',
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+          ]);
+        }
+        for (const r of b.reasons)
+          rows.push([
+            ...meta(b),
+            'reason',
+            r.group,
+            r.reason,
+            r.source,
+            r.intent,
+            r.validation,
+            r.pages,
+            r.previous_pages,
+            r.first_seen,
+          ]);
+      }
+      return {
+        filename: `${slug}-indexing-${day}.csv`,
+        content: toCsv(
+          [
+            ...head,
+            'row_type',
+            'group',
+            'reason',
+            'reason_source',
+            'classification',
+            'validation',
+            'pages',
+            'pages_previous_report',
+            'first_seen_in_spider',
+          ],
+          rows,
         ),
       };
     }

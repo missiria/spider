@@ -139,6 +139,8 @@ export function evidenceLines(
     );
   }
 
+  out.push(...indexingLines(evidence, s));
+
   if (isRecord(evidence.threshold))
     out.push(`- ${f.threshold}: \`${JSON.stringify(evidence.threshold)}\``);
 
@@ -148,4 +150,80 @@ export function evidenceLines(
     (l, i) =>
       !(l === "" && (i === 0 || i === out.length - 1 || out[i - 1] === "")),
   );
+}
+
+const str = (v: unknown): string | undefined =>
+  typeof v === "string" && v.trim() ? v : undefined;
+
+/** Page indexing evidence (MITP-0833): report export or URL Inspection, never mixed. */
+function indexingLines(
+  evidence: Record<string, unknown>,
+  s: PromptStrings,
+): string[] {
+  const f = s.fields;
+  const source = str(evidence.source);
+  if (source !== "gsc_export" && source !== "url_inspection_api") return [];
+  const out: string[] = [
+    `- ${f.indexingSource}: ${source === "gsc_export" ? f.sourceExport : f.sourceInspection}`,
+  ];
+  const reportDate = str(evidence.report_date);
+  const prevDate = str(evidence.previous_report_date);
+  if (reportDate)
+    out.push(
+      `- ${f.reportDate}: ${reportDate}` +
+        (prevDate ? ` (${f.comparedWith} ${prevDate})` : ""),
+    );
+  const reason = str(evidence.reason);
+  if (reason)
+    out.push(
+      `- ${f.googleReason}: ${reason}` +
+        (str(evidence.reason_source) ? ` (${evidence.reason_source})` : ""),
+    );
+  const pages = num(evidence.pages);
+  const prevPages = num(evidence.previous_pages);
+  if (pages !== undefined)
+    out.push(
+      `- ${f.pagesAffected}: ${formatInt(pages)}` +
+        (prevPages !== undefined
+          ? ` (${f.previous}: ${formatInt(prevPages)})`
+          : ""),
+    );
+  const indexed = num(evidence.indexed);
+  const prevIndexed = num(evidence.previous_indexed);
+  if (indexed !== undefined)
+    out.push(
+      `- ${f.indexedPages}: ${formatInt(indexed)}` +
+        (prevIndexed !== undefined
+          ? ` (${f.previous}: ${formatInt(prevIndexed)})`
+          : ""),
+    );
+  const consecutive = num(evidence.consecutive_imports);
+  if (consecutive !== undefined)
+    out.push(`- ${f.consecutiveReports}: ${formatInt(consecutive)}`);
+  const url = str(evidence.url);
+  if (source === "url_inspection_api") {
+    if (url) out.push(`- URL: ${url}`);
+    if (str(evidence.sitemap)) out.push(`- ${f.sitemap}: ${evidence.sitemap}`);
+    out.push(
+      `- ${f.coverageState}: ${str(evidence.coverage_state) ?? "—"}` +
+        (str(evidence.verdict) ? ` (${evidence.verdict})` : ""),
+    );
+    const at = str(evidence.inspected_at);
+    if (at) out.push(`- ${f.inspectedAt}: ${at.slice(0, 10)}`);
+  }
+  const examples = Array.isArray(evidence.examples)
+    ? evidence.examples.filter((e): e is string => typeof e === "string")
+    : [];
+  if (examples.length) {
+    out.push(
+      `- ${f.exampleUrls}` +
+        (evidence.examples_partial === true ? ` (${f.examplesPartial})` : "") +
+        ":",
+      ...examples.map((e) => `  - ${e}`),
+    );
+  }
+  const links = isRecord(evidence.links) ? evidence.links : null;
+  const link = links ? (str(links.search_console) ?? str(links.inspect)) : null;
+  if (link) out.push(`- ${f.searchConsoleLink}: ${link}`);
+  return out;
 }

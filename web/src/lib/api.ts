@@ -6,7 +6,15 @@ import type {
   AlertEventRow,
   AlertRuleRow,
   Brand,
+  IndexingFleet,
+  IndexingImportResult,
+  IndexingLiveCheck,
+  IndexingReasonDetail,
+  IndexingScopeRef,
+  IndexingUrlDetail,
+  IndexingUrlList,
   LogoMeta,
+  PropertyIndexing,
   ReportData,
   KeyFilters,
   Opportunity,
@@ -447,7 +455,12 @@ export const propertyExportUrl = (
   return `/api/reports/property/${id}/export.${kind}?${params.toString()}`;
 };
 export type PropertyExportSection =
-  "pages" | "queries" | "countries" | "devices" | "search_appearance";
+  | "pages"
+  | "queries"
+  | "countries"
+  | "devices"
+  | "search_appearance"
+  | "indexing";
 export const createSchedule = (
   reportId: number,
   body: {
@@ -560,4 +573,76 @@ export const processWebhooks = () =>
     .post<{ attempted: number; ok: number; failed: number }>(
       "/webhooks/process",
     )
+    .then((r) => r.data);
+
+// ---- Page indexing (MITP-0833) ---------------------------------------------
+
+const scopeParams = (s?: IndexingScopeRef) =>
+  s
+    ? { scope: s.scope, ...(s.scope_detail ? { sitemap: s.scope_detail } : {}) }
+    : {};
+
+export const getIndexingFleet = () =>
+  api.get<IndexingFleet>("/indexing/overview").then((r) => r.data);
+export const getPropertyIndexing = (id: number, scope?: IndexingScopeRef) =>
+  api
+    .get<PropertyIndexing>(`/properties/${id}/indexing`, {
+      params: scopeParams(scope),
+    })
+    .then((r) => r.data);
+export const getIndexingReason = (
+  id: number,
+  hash: string,
+  scope?: IndexingScopeRef,
+) =>
+  api
+    .get<IndexingReasonDetail>(`/properties/${id}/indexing/reasons/${hash}`, {
+      params: scopeParams(scope),
+    })
+    .then((r) => r.data);
+/** Raw ZIP/CSV body, as exported by Search Console ("Export" → "Download CSV"). */
+export const uploadIndexingExport = (id: number, file: File) =>
+  api
+    .post<IndexingImportResult>(`/properties/${id}/indexing/imports`, file, {
+      params: { filename: file.name },
+      headers: { "Content-Type": "application/octet-stream" },
+      timeout: 120_000,
+    })
+    .then((r) => r.data);
+export const deleteIndexingImport = (id: number, importId: number) =>
+  api.delete(`/properties/${id}/indexing/imports/${importId}`);
+export interface IndexingUrlFilter {
+  coverage?: string;
+  verdict?: string;
+  in_sitemap?: "1";
+  search?: string;
+  page?: number;
+}
+export const listIndexingUrls = (id: number, f: IndexingUrlFilter) =>
+  api
+    .get<IndexingUrlList>(`/properties/${id}/indexing/urls`, { params: f })
+    .then((r) => r.data);
+export const getIndexingUrl = (id: number, hash: string) =>
+  api
+    .get<IndexingUrlDetail>(`/properties/${id}/indexing/urls/${hash}`)
+    .then((r) => r.data);
+export const liveCheckIndexingUrl = (id: number, hash: string) =>
+  api
+    .post<IndexingLiveCheck>(
+      `/properties/${id}/indexing/urls/${hash}/live-check`,
+      undefined,
+      { timeout: 90_000 },
+    )
+    .then((r) => r.data);
+export const inspectIndexingUrl = (id: number, url: string) =>
+  api
+    .post<IndexingUrlDetail>(
+      `/properties/${id}/indexing/inspect`,
+      { url },
+      { timeout: 90_000 },
+    )
+    .then((r) => r.data);
+export const refreshIndexing = (id: number) =>
+  api
+    .post<{ started: boolean }>(`/properties/${id}/indexing/refresh`)
     .then((r) => r.data);

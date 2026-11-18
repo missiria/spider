@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
@@ -716,6 +717,12 @@ export default function PropertyPage() {
           <p className="mt-1 font-mono text-xs text-muted">{p.site_url}</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href={`/properties/${p.id}/indexing`}
+            className="inline-flex items-center justify-center rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium transition-colors hover:bg-surface-muted"
+          >
+            Page indexing
+          </Link>
           <Button variant="secondary" disabled={busy} onClick={check}>
             Check access
           </Button>

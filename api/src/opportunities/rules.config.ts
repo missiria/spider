@@ -29,6 +29,24 @@ export interface RuleConfig {
     min_impressions: number;
     min_share: number;
   };
+  // Page indexing rules (MITP-0833)
+  indexing_new_reason: { enabled: boolean; min_pages: number };
+  indexing_spike: {
+    enabled: boolean;
+    min_increase_pages: number;
+    min_increase_ratio: number;
+  };
+  indexed_drop: {
+    enabled: boolean;
+    min_previous_indexed: number;
+    drop_ratio: number;
+  };
+  submitted_not_indexed: { enabled: boolean; max_items: number };
+  indexing_persistent: {
+    enabled: boolean;
+    min_imports: number;
+    min_pages: number;
+  };
   /** a done item re-triggers only if the finding comes back this many days after completion */
   regression_days: number;
 }
@@ -54,6 +72,15 @@ export const DEFAULT_RULES: RuleConfig = {
     min_impressions: 50,
   },
   cannibalization: { enabled: true, min_impressions: 100, min_share: 0.25 },
+  indexing_new_reason: { enabled: true, min_pages: 1 },
+  indexing_spike: {
+    enabled: true,
+    min_increase_pages: 10,
+    min_increase_ratio: 0.5,
+  },
+  indexed_drop: { enabled: true, min_previous_indexed: 20, drop_ratio: 0.15 },
+  submitted_not_indexed: { enabled: true, max_items: 50 },
+  indexing_persistent: { enabled: true, min_imports: 3, min_pages: 1 },
   regression_days: 14,
 };
 
@@ -82,6 +109,11 @@ export function mergeRules(partial: unknown): RuleConfig {
     'low_ctr',
     'near_page_one',
     'cannibalization',
+    'indexing_new_reason',
+    'indexing_spike',
+    'indexed_drop',
+    'submitted_not_indexed',
+    'indexing_persistent',
   ] as const) {
     const src = p[rule];
     if (!src || typeof src !== 'object') continue;

@@ -47,6 +47,81 @@ function Totals({ t }: { t: MetricTotals }) {
   );
 }
 
+/** Page indexing evidence (MITP-0833): says which source the numbers come from. */
+function IndexingEvidence({ o }: { o: OpportunityDetail }) {
+  const ev = o.evidence as {
+    source?: string;
+    report_date?: string | null;
+    previous_report_date?: string | null;
+    reason?: string;
+    reason_source?: string | null;
+    pages?: number;
+    previous_pages?: number;
+    indexed?: number;
+    previous_indexed?: number;
+    examples?: string[];
+    examples_partial?: boolean | null;
+    history?: { report_date: string; pages: number }[];
+    url?: string;
+    sitemap?: string | null;
+    coverage_state?: string | null;
+    verdict?: string | null;
+    inspected_at?: string;
+    links?: { search_console?: string; inspect?: string };
+  };
+  if (ev.source !== "gsc_export" && ev.source !== "url_inspection_api") return null;
+  const link = ev.links?.search_console ?? ev.links?.inspect;
+  return (
+    <div className="space-y-3">
+      <div className="text-muted">
+        {ev.source === "gsc_export" ? "Search Console Page indexing report (uploaded export)" : "Search Console URL Inspection API (Google index)"}
+        {ev.report_date && <> · report of <span className="tabular">{ev.report_date}</span></>}
+        {ev.previous_report_date && <> vs <span className="tabular">{ev.previous_report_date}</span></>}
+        {ev.inspected_at && <> · inspected <span className="tabular">{String(ev.inspected_at).slice(0, 10)}</span></>}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {typeof ev.pages === "number" && <KpiCard label="Affected pages" value={formatInt(ev.pages)} hint={typeof ev.previous_pages === "number" ? `prev ${formatInt(ev.previous_pages)}` : undefined} />}
+        {typeof ev.indexed === "number" && <KpiCard label="Indexed pages" value={formatInt(ev.indexed)} hint={typeof ev.previous_indexed === "number" ? `prev ${formatInt(ev.previous_indexed)}` : undefined} />}
+        {ev.coverage_state !== undefined && <KpiCard label="Coverage state" value={ev.coverage_state ?? "—"} hint={ev.verdict ?? undefined} />}
+      </div>
+      {ev.reason && (
+        <div>
+          Google reason: <strong>{ev.reason}</strong>
+          {ev.reason_source && <span className="text-muted"> (source: {ev.reason_source})</span>}
+        </div>
+      )}
+      {ev.sitemap && <div className="break-all text-muted">Listed in {ev.sitemap}</div>}
+      {ev.history && ev.history.length > 0 && (
+        <div className="text-muted">
+          In consecutive reports: {ev.history.map((h) => `${h.report_date} (${formatInt(h.pages)})`).join(" · ")}
+        </div>
+      )}
+      {ev.examples && ev.examples.length > 0 && (
+        <div>
+          <div className="mb-1 font-medium">
+            Example URLs{ev.examples_partial ? " (partial list: 1,000-row export limit)" : ""}
+          </div>
+          <ul className="space-y-0.5">
+            {ev.examples.map((u) => (
+              <li key={u} className="break-all">
+                <a href={u} target="_blank" rel="noreferrer" className="hover:text-primary">{u}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-4">
+        <Link href={`/properties/${o.property_id}/indexing`} className="text-primary hover:underline">Open Page indexing in Spider</Link>
+        {link && (
+          <a href={link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+            Open in Search Console <ExternalLink className="h-3 w-3" aria-hidden />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Evidence({ o, propertyUrl }: { o: OpportunityDetail; propertyUrl?: string }) {
   const ev = o.evidence as {
     period?: { start: string; end: string };
@@ -108,6 +183,7 @@ function Evidence({ o, propertyUrl }: { o: OpportunityDetail; propertyUrl?: stri
           </table>
         </div>
       )}
+      <IndexingEvidence o={o} />
       {ev.threshold && (
         <div className="text-xs text-muted">
           Threshold used: <code className="rounded bg-surface-muted px-1">{JSON.stringify(ev.threshold)}</code> — adjust in Settings → Opportunity rules.

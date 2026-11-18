@@ -175,6 +175,95 @@ export function reportTables(data: ReportData): ExportTable[] {
       ]),
     });
   }
+  if (data.indexing) {
+    const blocks = data.indexing.blocks;
+    if (blocks.length > 1) {
+      out.push({
+        section: "indexing",
+        title: "Page indexing per property",
+        note: "All known pages view of each property’s latest uploaded Search Console export. Inspected = URL Inspection results for Spider’s tracked URLs, a separate source.",
+        columns: [
+          { label: "Site", kind: "text" },
+          { label: "Report date", kind: "text" },
+          { label: "Indexed", kind: "int" },
+          { label: "Not indexed", kind: "int" },
+          { label: "Inspected URLs", kind: "int" },
+          { label: "Tracked URLs", kind: "int" },
+        ],
+        rows: blocks.map((b) => [
+          b.property.display_name,
+          b.report_date ? `${b.report_date}${b.stale ? " (stale)" : ""}` : "no report",
+          b.totals?.indexed ?? null,
+          b.totals?.not_indexed ?? null,
+          b.inspection.inspected_urls,
+          b.inspection.tracked_urls,
+        ]),
+      });
+    }
+    for (const b of blocks) {
+      if (blocks.length > 1 && !b.report_date) continue;
+      const head = blocks.length > 1 ? `${b.property.display_name} · ` : "";
+      const provenance = `View: ${b.view} · Source: ${b.source} · Report date: ${b.report_date ?? "none"} · Completeness: ${b.completeness}`;
+      out.push({
+        section: "indexing",
+        title: `${head}Page indexing reasons`,
+        note: provenance,
+        columns: [
+          { label: "Reason", kind: "text" },
+          { label: "Source", kind: "text" },
+          { label: "Classification", kind: "text" },
+          { label: "Validation", kind: "text" },
+          { label: "Pages", kind: "int" },
+          { label: "Pages (previous report)", kind: "int" },
+          { label: "First seen in Spider", kind: "text" },
+        ],
+        rows: [
+          ...(b.totals
+            ? ([
+                ["Indexed (total)", null, "total", null, b.totals.indexed, b.totals.previous_indexed, null],
+                ["Not indexed (total)", null, "total", null, b.totals.not_indexed, b.totals.previous_not_indexed, null],
+              ] as CellValue[][])
+            : []),
+          ...b.reasons.map(
+            (r): CellValue[] => [
+              r.reason,
+              r.source,
+              r.group === "indexed" ? "indexed" : r.intent.replace("_", " "),
+              r.validation,
+              r.pages,
+              r.previous_pages,
+              r.first_seen,
+            ],
+          ),
+        ],
+      });
+      if (b.trend.length > 1) {
+        out.push({
+          section: "indexing_trend",
+          title: `${head}Indexed and not indexed pages over time`,
+          note: provenance,
+          columns: [
+            { label: "Date", kind: "text" },
+            { label: "Indexed", kind: "int" },
+            { label: "Not indexed", kind: "int" },
+          ],
+          rows: b.trend.map((t) => [t.date, t.indexed, t.not_indexed]),
+        });
+      }
+    }
+    out.push({
+      section: "indexing",
+      title: "Open indexing findings",
+      note: "Raised from the imported reports and URL Inspection. Intentional exclusions (canonical alternates, noindex, redirects) are never listed as defects.",
+      columns: [
+        { label: "Priority", kind: "text" },
+        { label: "Finding", kind: "text" },
+        { label: "Property", kind: "text" },
+        { label: "Confidence", kind: "text" },
+      ],
+      rows: data.indexing.opportunities.map((x) => [x.priority, x.title, x.property, x.confidence]),
+    });
+  }
   return out;
 }
 

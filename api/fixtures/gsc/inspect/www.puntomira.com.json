@@ -1,0 +1,111 @@
+{
+ "https://www.puntomira.com/": {
+  "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=https://www.puntomira.com/&id=https://www.puntomira.com/",
+  "indexStatusResult": {
+   "verdict": "PASS",
+   "coverageState": "Submitted and indexed",
+   "robotsTxtState": "ALLOWED",
+   "indexingState": "INDEXING_ALLOWED",
+   "lastCrawlTime": "2026-11-10T06:12:00Z",
+   "pageFetchState": "SUCCESSFUL",
+   "googleCanonical": "https://www.puntomira.com/",
+   "userCanonical": "https://www.puntomira.com/",
+   "sitemap": [
+    "https://www.puntomira.com/sitemap.xml"
+   ],
+   "referringUrls": [
+    "https://www.puntomira.com/"
+   ],
+   "crawledAs": "MOBILE"
+  }
+ },
+ "https://www.puntomira.com/precios/": {
+  "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=https://www.puntomira.com/&id=https://www.puntomira.com/precios/",
+  "indexStatusResult": {
+   "verdict": "PASS",
+   "coverageState": "Submitted and indexed",
+   "robotsTxtState": "ALLOWED",
+   "indexingState": "INDEXING_ALLOWED",
+   "lastCrawlTime": "2026-11-10T06:12:00Z",
+   "pageFetchState": "SUCCESSFUL",
+   "googleCanonical": "https://www.puntomira.com/precios/",
+   "userCanonical": "https://www.puntomira.com/precios/",
+   "sitemap": [
+    "https://www.puntomira.com/sitemap.xml"
+   ],
+   "referringUrls": [
+    "https://www.puntomira.com/"
+   ],
+   "crawledAs": "MOBILE"
+  }
+ },
+ "https://www.puntomira.com/prueba-gratis/": {
+  "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=https://www.puntomira.com/&id=https://www.puntomira.com/prueba-gratis/",
+  "indexStatusResult": {
+   "verdict": "PASS",
+   "coverageState": "Submitted and indexed",
+   "robotsTxtState": "ALLOWED",
+   "indexingState": "INDEXING_ALLOWED",
+   "lastCrawlTime": "2026-11-10T06:12:00Z",
+   "pageFetchState": "SUCCESSFUL",
+   "googleCanonical": "https://www.puntomira.com/prueba-gratis/",
+   "userCanonical": "https://www.puntomira.com/prueba-gratis/",
+   "sitemap": [
+    "https://www.puntomira.com/sitemap.xml"
+   ],
+   "referringUrls": [
+    "https://www.puntomira.com/"
+   ],
+   "crawledAs": "MOBILE"
+  }
+ },
+ "https://www.puntomira.com/blog/": {
+  "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=https://www.puntomira.com/&id=https://www.puntomira.com/blog/",
+  "indexStatusResult": {
+   "verdict": "PASS",
+   "coverageState": "Submitted and indexed",
+   "robotsTxtState": "ALLOWED",
+   "indexingState": "INDEXING_ALLOWED",
+   "lastCrawlTime": "2026-11-10T06:12:00Z",
+   "pageFetchState": "SUCCESSFUL",
+   "googleCanonical": "https://www.puntomira.com/blog/",
+   "userCanonical": "https://www.puntomira.com/blog/",
+   "sitemap": [
+    "https://www.puntomira.com/sitemap.xml"
+   ],
+   "referringUrls": [
+    "https://www.puntomira.com/"
+   ],
+   "crawledAs": "MOBILE"
+  }
+ },
+ "https://www.puntomira.com/blog/lista-de-canales/": {
+  "indexStatusResult": {
+   "verdict": "NEUTRAL",
+   "coverageState": "Crawled - currently not indexed",
+   "robotsTxtState": "ALLOWED",
+   "indexingState": "INDEXING_ALLOWED",
+   "lastCrawlTime": "2026-11-08T11:40:00Z",
+   "pageFetchState": "SUCCESSFUL",
+   "userCanonical": "https://www.puntomira.com/blog/lista-de-canales/",
+   "sitemap": [
+    "https://www.puntomira.com/sitemap.xml"
+   ],
+   "crawledAs": "MOBILE"
+  }
+ },
+ "https://www.puntomira.com/producto/plan-anual-old/": {
+  "indexStatusResult": {
+   "verdict": "FAIL",
+   "coverageState": "Not found (404)",
+   "robotsTxtState": "ALLOWED",
+   "indexingState": "INDEXING_ALLOWED",
+   "lastCrawlTime": "2026-11-09T02:05:00Z",
+   "pageFetchState": "NOT_FOUND",
+   "sitemap": [
+    "https://www.puntomira.com/sitemap.xml"
+   ],
+   "crawledAs": "MOBILE"
+  }
+ }
+}

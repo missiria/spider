@@ -9,7 +9,8 @@ import {
 } from 'typeorm';
 import { Property } from '../../properties/entities/property.entity';
 
-export type SyncKind = 'backfill' | 'incremental' | 'top';
+/** indexing = Sitemaps + URL Inspection collection (MITP-0833) */
+export type SyncKind = 'backfill' | 'incremental' | 'top' | 'indexing';
 /** partial = daily totals stored, but at least one dimension hit the page cap or failed */
 export type SyncStatus = 'running' | 'ok' | 'partial' | 'failed';
 
@@ -28,7 +29,10 @@ export class SyncRun {
   @JoinColumn({ name: 'property_id' })
   property: Property;
 
-  @Column({ type: 'enum', enum: ['backfill', 'incremental', 'top'] })
+  @Column({
+    type: 'enum',
+    enum: ['backfill', 'incremental', 'top', 'indexing'],
+  })
   kind: SyncKind;
 
   @Column({

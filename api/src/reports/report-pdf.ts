@@ -238,6 +238,149 @@ export function buildReportDocument(
     }
   }
 
+  if (data.indexing) {
+    const hasBefore =
+      !!data.overview || data.tables.length > 0 || !!data.opportunities;
+    content.push({
+      text: 'Page indexing',
+      style: 'h2',
+      color: accent,
+      ...(hasBefore ? { pageBreak: 'before' as const } : {}),
+    });
+    content.push({
+      text: 'Report-wide counts come from the Search Console Page indexing export uploaded to Spider (Google has no API for that report). URL Inspection figures cover the URLs Spider tracks, not every page Google knows. The two are never added together.',
+      style: 'muted',
+    });
+    const many = data.indexing.blocks.length > 1;
+    if (many) {
+      content.push(
+        dataTable(
+          ['Property', 'Report date', 'Indexed', 'Not indexed', 'Inspected'],
+          data.indexing.blocks.map((b) => [
+            pdfText(b.property.display_name),
+            b.report_date
+              ? `${b.report_date}${b.stale ? ' (stale)' : ''}`
+              : 'no report',
+            b.totals?.indexed == null ? '—' : fmtInt(b.totals.indexed),
+            b.totals?.not_indexed == null ? '—' : fmtInt(b.totals.not_indexed),
+            `${fmtInt(b.inspection.inspected_urls)} / ${fmtInt(b.inspection.tracked_urls)}`,
+          ]),
+          ['*', 'auto', 'auto', 'auto', 'auto'],
+        ),
+      );
+    }
+    for (const b of data.indexing.blocks) {
+      // fleet reports detail only the properties that have a report
+      if (many && !b.report_date) continue;
+      content.push({
+        text: pdfText(
+          many ? `${b.property.display_name} · ${b.view}` : `View: ${b.view}`,
+        ),
+        style: 'h3',
+      });
+      content.push({
+        text: pdfText(
+          `Source: ${b.source} · Report date: ${b.report_date ?? 'none'} · Completeness: ${b.completeness}`,
+        ),
+        style: 'muted',
+      });
+      if (b.totals) {
+        const pct = (a: number | null, p: number | null) =>
+          a === null || p === null || p === 0 ? null : (a - p) / p;
+        content.push(
+          kpiTable([
+            [
+              'Indexed pages',
+              b.totals.indexed === null ? '—' : fmtInt(b.totals.indexed),
+              b.totals.previous_indexed === null
+                ? '—'
+                : fmtInt(b.totals.previous_indexed),
+              fmtDelta(pct(b.totals.indexed, b.totals.previous_indexed)),
+            ],
+            [
+              'Not indexed pages',
+              b.totals.not_indexed === null
+                ? '—'
+                : fmtInt(b.totals.not_indexed),
+              b.totals.previous_not_indexed === null
+                ? '—'
+                : fmtInt(b.totals.previous_not_indexed),
+              fmtDelta(
+                pct(b.totals.not_indexed, b.totals.previous_not_indexed),
+              ),
+            ],
+          ]),
+        );
+        if (b.totals.previous_date)
+          content.push({
+            text: `Previous = the report imported before this one (${b.totals.previous_date}).`,
+            style: 'muted',
+          });
+      }
+      if (b.reasons.length) {
+        content.push(
+          dataTable(
+            [
+              'Reason',
+              'Source',
+              'Classification',
+              'Validation',
+              'Pages',
+              'Prev.',
+            ],
+            b.reasons
+              .slice(0, PDF_TABLE_ROWS)
+              .map((r) => [
+                pdfText(r.reason),
+                r.source ?? '—',
+                r.group === 'indexed' ? 'indexed' : r.intent.replace('_', ' '),
+                pdfText(r.validation ?? '—'),
+                fmtInt(r.pages),
+                r.previous_pages === null ? '—' : fmtInt(r.previous_pages),
+              ]),
+            ['*', 'auto', 'auto', 'auto', 'auto', 'auto'],
+          ),
+        );
+      }
+      const trend = sampleTrend(b.trend, 8);
+      if (trend.length > 1) {
+        content.push({
+          text: `Trend (${b.trend.length} daily rows in the export, sampled)`,
+          style: 'muted',
+        });
+        content.push(
+          dataTable(
+            ['Date', 'Indexed', 'Not indexed'],
+            trend.map((t) => [
+              t.date,
+              t.indexed === null ? '—' : fmtInt(t.indexed),
+              t.not_indexed === null ? '—' : fmtInt(t.not_indexed),
+            ]),
+            ['*', 'auto', 'auto'],
+          ),
+        );
+      }
+    }
+    content.push({ text: 'Open indexing findings', style: 'h3' });
+    if (!data.indexing.opportunities.length)
+      content.push({ text: 'None open.', style: 'muted' });
+    else
+      content.push(
+        dataTable(
+          ['Priority', 'Finding', 'Property', 'Confidence'],
+          data.indexing.opportunities
+            .slice(0, PDF_TABLE_ROWS)
+            .map((o) => [
+              o.priority,
+              pdfText(o.title),
+              pdfText(o.property),
+              o.confidence,
+            ]),
+          ['auto', '*', 'auto', 'auto'],
+        ),
+      );
+  }
+
   content.push({
     text: 'Definitions',
     style: 'h2',
@@ -253,6 +396,7 @@ export function buildReportDocument(
       'Query tables cover only queries Google reports; low-volume ("anonymised") queries are omitted, so query rows explain less than 100 % of clicks — the coverage note under each table states how much.',
       'Search appearance rows exist only for results with a special appearance (rich results, AMP…).',
       'Data freshness: Google finalises data about three days late; the report ends at "data through".',
+      'Page indexing: counts are those of the Search Console export uploaded on the stated report date, for the stated view; "likely defect" is Spider’s classification of Google’s reason, not a diagnosis.',
     ],
     style: 'small',
   });
@@ -357,6 +501,15 @@ export function buildReportDocument(
     },
     defaultStyle: { fontSize: 10 },
   };
+}
+
+/** At most `max` evenly spaced points, always keeping the first and the last. */
+export function sampleTrend<T>(rows: T[], max: number): T[] {
+  if (rows.length <= max) return rows;
+  const out: T[] = [];
+  for (let i = 0; i < max; i += 1)
+    out.push(rows[Math.round((i * (rows.length - 1)) / (max - 1))]);
+  return out;
 }
 
 function kpiTable(rows: string[][]): Content {

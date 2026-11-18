@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { IndexingModule } from '../indexing/indexing.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { OpportunitiesModule } from '../opportunities/opportunities.module';
 import { OverviewModule } from '../overview/overview.module';
@@ -17,6 +18,7 @@ import { ReportsService } from './reports.service';
     TypeOrmModule.forFeature([Report, ReportSchedule, ReportDelivery]),
     OverviewModule,
     OpportunitiesModule,
+    IndexingModule,
     PropertiesModule,
     WorkspacesModule,
     IntegrationsModule,

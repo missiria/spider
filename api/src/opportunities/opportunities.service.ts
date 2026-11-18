@@ -39,6 +39,8 @@ import {
 } from './entities/opportunity.entity';
 import { parseCoverage, unreliableDimensions } from '../sync/coverage';
 import { mergeRules, RuleConfig } from './rules.config';
+import { IndexingService } from '../indexing/indexing.service';
+import { evaluateIndexing } from './indexing.rules';
 import {
   evaluate,
   Finding,
@@ -85,6 +87,7 @@ export class OpportunitiesService {
     private readonly properties: PropertiesService,
     private readonly workspaces: WorkspacesService,
     private readonly gsc: GscService,
+    private readonly indexing: IndexingService,
   ) {}
 
   // ---- rules -----------------------------------------------------------
@@ -225,7 +228,35 @@ export class OpportunitiesService {
         );
       }
     }
-    return evaluate(input, cfg);
+    const findings = evaluate(input, cfg);
+    // Page indexing rules (MITP-0833): report imports + URL Inspection, independent of the
+    // Search Analytics coverage above
+    try {
+      const idx = await this.indexing.scanInput(property.id);
+      findings.push(
+        ...evaluateIndexing({ site_url: property.site_url, ...idx }, cfg),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `indexing rules ${property.site_url}: ${(err as Error).message}`,
+      );
+    }
+    return findings;
+  }
+
+  /** Scan one property now (after an indexing import or refresh). Same dedupe as scan(). */
+  async scanProperty(propertyId: number): Promise<{
+    findings: number;
+    created: number;
+    updated: number;
+    skipped: number;
+  }> {
+    const ws = await this.workspaces.current();
+    const property = await this.properties.get(propertyId);
+    const cfg = await this.getRules();
+    const findings = await this.evaluateProperty(property, cfg);
+    const r = await this.persist(ws.id, property, findings, cfg);
+    return { findings: findings.length, ...r };
   }
 
   private async keyTotals(

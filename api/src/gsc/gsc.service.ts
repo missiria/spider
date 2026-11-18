@@ -28,6 +28,37 @@ export interface GscPagedResult {
   truncated: boolean;
 }
 
+/** Sitemaps API entry (subset of searchconsole_v1.Schema$WmxSitemap). */
+export interface GscSitemapInfo {
+  path?: string | null;
+  lastSubmitted?: string | null;
+  lastDownloaded?: string | null;
+  isPending?: boolean | null;
+  isSitemapsIndex?: boolean | null;
+  warnings?: string | null;
+  errors?: string | null;
+  contents?: { type?: string | null; submitted?: string | null }[] | null;
+}
+
+/** URL Inspection API result (subset of searchconsole_v1.Schema$UrlInspectionResult). */
+export interface GscInspectionResult {
+  inspectionResultLink?: string | null;
+  indexStatusResult?: {
+    verdict?: string | null;
+    coverageState?: string | null;
+    robotsTxtState?: string | null;
+    indexingState?: string | null;
+    lastCrawlTime?: string | null;
+    pageFetchState?: string | null;
+    googleCanonical?: string | null;
+    userCanonical?: string | null;
+    sitemap?: string[] | null;
+    referringUrls?: string[] | null;
+    crawledAs?: string | null;
+  } | null;
+  [key: string]: unknown;
+}
+
 /** GSC hard limit per request. */
 export const GSC_ROW_LIMIT = 25000;
 /** Safety cap per (property, dimension, date-chunk): 20 pages = 500k rows. */
@@ -193,6 +224,57 @@ export class GscService {
       }
     }
     return { rows, calls, truncated: false };
+  }
+
+  // ---- Page indexing (MITP-0833) -----------------------------------------
+
+  /** Sitemaps the property submitted, as the Sitemaps API reports them. */
+  async listSitemaps(siteUrl: string): Promise<GscSitemapInfo[]> {
+    if (this.mock) {
+      const data = this.readFixture<{ sitemap?: GscSitemapInfo[] }>(
+        `sitemaps/${GscService.fixtureHost(siteUrl)}.json`,
+      );
+      return data?.sitemap ?? [];
+    }
+    await this.pace();
+    const res = await this.withRetry(() =>
+      this.api().sitemaps.list({ siteUrl }),
+    );
+    return (res.data.sitemap ?? []) as GscSitemapInfo[];
+  }
+
+  /**
+   * URL Inspection API: Google's view of the INDEXED version of one URL. Errors are not retried
+   * on 429 here (the caller stops the batch and records quota); 5xx are retried.
+   */
+  async inspectUrl(
+    siteUrl: string,
+    inspectionUrl: string,
+  ): Promise<GscInspectionResult> {
+    if (this.mock) {
+      const data = this.readFixture<Record<string, GscInspectionResult>>(
+        `inspect/${GscService.fixtureHost(siteUrl)}.json`,
+      );
+      const hit = data?.[inspectionUrl];
+      if (hit) {
+        return hit;
+      }
+      return {
+        indexStatusResult: {
+          verdict: 'NEUTRAL',
+          coverageState: 'URL is unknown to Google',
+        },
+      };
+    }
+    await this.pace();
+    const res = await this.withRetry(
+      () =>
+        this.api().urlInspection.index.inspect({
+          requestBody: { inspectionUrl, siteUrl, languageCode: 'en-US' },
+        }),
+      2,
+    );
+    return (res.data.inspectionResult ?? {}) as GscInspectionResult;
   }
 
   // ---- real client -------------------------------------------------------

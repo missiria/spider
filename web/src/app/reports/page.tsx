@@ -65,6 +65,12 @@ const SECTIONS: {
     fleet: true,
     property: true,
   },
+  {
+    value: "indexing",
+    label: "Page indexing (imported report, reasons, trend, findings)",
+    fleet: true,
+    property: true,
+  },
 ];
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

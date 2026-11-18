@@ -17,6 +17,7 @@ import { createHmac } from 'node:crypto';
 import * as nodeHttp from 'node:http';
 import { MailerService } from '../src/integrations/mailer.service';
 import { jpegHeader, solidPng } from '../src/testing/images.helper-spec';
+import { zip } from '../src/testing/zip.helper-spec';
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
 process.env.DB_DATABASE = process.env.E2E_DB_DATABASE ?? 'pro_spider_app_test';
@@ -84,6 +85,14 @@ describe('Spider API (e2e)', () => {
     // clean slate every run, keep the schema
     await ds.query('SET FOREIGN_KEY_CHECKS = 0');
     for (const t of [
+      'indexing_examples',
+      'indexing_trend',
+      'indexing_reasons',
+      'indexing_imports',
+      'url_inspections',
+      'tracked_urls',
+      'gsc_sitemaps',
+      'gsc_quota_usage',
       'webhook_deliveries',
       'webhooks',
       'alert_events',
@@ -570,6 +579,480 @@ describe('Spider API (e2e)', () => {
     await http
       .get(`/reports/property/${propertyId}/export.csv?section=queries`)
       .expect(401);
+  });
+
+  it('page indexing (MITP-0833): import every reason, scopes apart, URL Inspection, opportunities, reports', async () => {
+    const SITE = 'https://www.puntomira.com/';
+    const overview = (
+      chart: string,
+      critical: string,
+      extra: Record<string, string> = {},
+    ) =>
+      zip({
+        'Chart.csv': `Date,Not indexed,Indexed,Impressions\n${chart}`,
+        'Critical issues.csv': `Reason,Source,Validation,Pages\n${critical}`,
+        'Non-critical issues.csv':
+          'Reason,Source,Validation,Pages\n"Indexed, though blocked by robots.txt",Website,Not Started,2\n',
+        'Metadata.csv': `Property,Value\nProperty,${SITE}\nSitemap filter,All known pages\n`,
+        ...extra,
+      });
+    const upload = (buf: Buffer, filename: string) =>
+      http
+        .post(`/properties/${propertyId}/indexing/imports?filename=${filename}`)
+        .set(auth())
+        .set('Content-Type', 'application/octet-stream')
+        .send(buf);
+
+    // nothing imported yet: explicit empty state, never invented numbers
+    const empty = await http
+      .get(`/properties/${propertyId}/indexing`)
+      .set(auth())
+      .expect(200);
+    expect(empty.body.report).toBeNull();
+    expect(empty.body.totals).toBeNull();
+    expect(empty.body.reasons).toEqual([]);
+
+    // parser errors are controlled 400s; an export of another property is refused
+    await upload(Buffer.from('not a zip, not a csv'), 'x.zip').expect(400);
+    const foreign = await upload(
+      zip({
+        'Chart.csv': 'Date,Not indexed,Indexed\n2026-11-13,1,2\n',
+        'Critical issues.csv':
+          'Reason,Source,Validation,Pages\n"Not found (404)",Website,Not Started,1\n',
+        'Metadata.csv':
+          'Property,Value\nProperty,https://www.example.org/\nSitemap filter,All known pages\n',
+      }),
+      'other.zip',
+    ).expect(400);
+    expect(foreign.body.message).toMatch(/example\.org/);
+    await http
+      .post(`/properties/${propertyId}/indexing/imports`)
+      .send(Buffer.from('x'))
+      .expect(401);
+
+    // first report: the baseline
+    const first = await upload(
+      overview(
+        '2026-11-05,118,852,4000\n2026-11-06,120,850,4100\n',
+        '"Crawled - currently not indexed",Google systems,Not Started,30\nAlternate page with proper canonical tag,Website,N/A,80\n',
+      ),
+      'baseline.zip',
+    ).expect(201);
+    expect(first.body.replaced).toBe(false);
+    expect(first.body.import.report_date).toBe('2026-11-06');
+
+    // second report: a new 404 reason, a new unknown reason, a new intentional one
+    const latestZip = overview(
+      '2026-11-12,124,848,3900\n2026-11-13,130,845,4000\n',
+      '"Not found (404)",Website,Not Started,10\nAlternate page with proper canonical tag,Website,N/A,85\n"Crawled - currently not indexed",Google systems,Not Started,30\n"Brand new reason Google invented",Google systems,Not Started,5\nExcluded by ‘noindex’ tag,Website,N/A,7\n',
+    );
+    const second = await upload(latestZip, 'latest.zip').expect(201);
+    expect(second.body.import.reason_rows).toBe(6);
+    expect(second.body.opportunities.created).toBeGreaterThan(0);
+
+    const page = await http
+      .get(`/properties/${propertyId}/indexing`)
+      .set(auth())
+      .expect(200);
+    expect(page.body.scope).toEqual({ scope: 'all_known', scope_detail: null });
+    expect(page.body.report).toMatchObject({
+      report_date: '2026-11-13',
+      source: 'gsc_export',
+    });
+    // totals reconcile with the file, previous = the report imported before
+    expect(page.body.totals).toMatchObject({
+      indexed: 845,
+      not_indexed: 130,
+      previous_indexed: 850,
+      previous_not_indexed: 120,
+    });
+    expect(page.body.trend).toHaveLength(2);
+    type ReasonRow = {
+      reason: string;
+      reason_hash: string;
+      pages: number;
+      previous_pages: number | null;
+      is_new: boolean;
+      intent: string;
+      source: string;
+      group: string;
+    };
+    const reasons = page.body.reasons as ReasonRow[];
+    expect(reasons).toHaveLength(6);
+    const nf = reasons.find((r) => r.reason === 'Not found (404)')!;
+    expect(nf).toMatchObject({
+      pages: 10,
+      previous_pages: 0,
+      is_new: true,
+      intent: 'likely_defect',
+      source: 'Website',
+      group: 'not_indexed',
+    });
+    // a reason Spider has never heard of is stored and shown as reported
+    expect(
+      reasons.find((r) => r.reason === 'Brand new reason Google invented'),
+    ).toMatchObject({ pages: 5, intent: 'review' });
+    expect(
+      reasons.find((r) => r.reason.startsWith('Alternate page')),
+    ).toMatchObject({ pages: 85, previous_pages: 80, intent: 'intentional' });
+
+    // re-uploading the same report replaces it: nothing doubles
+    const again = await upload(latestZip, 'latest.zip').expect(201);
+    expect(again.body.replaced).toBe(true);
+    const after = await http
+      .get(`/properties/${propertyId}/indexing`)
+      .set(auth())
+      .expect(200);
+    expect(after.body.reasons).toHaveLength(6);
+    expect(after.body.totals.indexed).toBe(845);
+    expect(
+      after.body.imports.filter(
+        (i: { report_kind: string }) => i.report_kind === 'overview',
+      ),
+    ).toHaveLength(2);
+
+    // another view is stored apart and never mixed into All known pages
+    await upload(
+      zip({
+        'Chart.csv': 'Date,Not indexed,Indexed\n2026-11-13,3,40\n',
+        'Critical issues.csv':
+          'Reason,Source,Validation,Pages\n"Not found (404)",Website,Not Started,3\n',
+        'Metadata.csv': `Property,Value\nProperty,${SITE}\nSitemap filter,All submitted pages\n`,
+      }),
+      'submitted.zip',
+    ).expect(201);
+    const submitted = await http
+      .get(`/properties/${propertyId}/indexing?scope=submitted`)
+      .set(auth())
+      .expect(200);
+    expect(submitted.body.totals).toMatchObject({
+      indexed: 40,
+      not_indexed: 3,
+    });
+    expect(submitted.body.reasons).toHaveLength(1);
+    const allKnown = await http
+      .get(`/properties/${propertyId}/indexing`)
+      .set(auth())
+      .expect(200);
+    expect(allKnown.body.totals.indexed).toBe(845);
+    expect(
+      allKnown.body.scopes.map((s: { scope: string }) => s.scope).sort(),
+    ).toEqual(['all_known', 'submitted']);
+
+    // the reason's own export brings its example URLs
+    const examples = Array.from(
+      { length: 10 },
+      (_, i) => `${SITE}gone-${i}/,2026-11-0${(i % 9) + 1}`,
+    ).join('\n');
+    const issue = await upload(
+      zip({
+        'Chart.csv': 'Date,Affected pages\n2026-11-12,9\n2026-11-13,10\n',
+        'Table.csv': `URL,Last crawled\n${examples}\n`,
+        'Metadata.csv': `Property,Value\nProperty,${SITE}\nIssue,Not found (404)\nLast updated,"Nov 13, 2026"\n`,
+      }),
+      'not-found.zip',
+    ).expect(201);
+    expect(issue.body.import).toMatchObject({
+      report_kind: 'issue',
+      example_rows: 10,
+      examples_partial: false,
+    });
+    const detail = await http
+      .get(`/properties/${propertyId}/indexing/reasons/${nf.reason_hash}`)
+      .set(auth())
+      .expect(200);
+    expect(detail.body).toMatchObject({
+      reason: 'Not found (404)',
+      intent: 'likely_defect',
+      first_seen: '2026-11-13',
+    });
+    expect(detail.body.examples).toHaveLength(10);
+    expect(detail.body.examples[0].inspect_link).toMatch(
+      /search\.google\.com\/search-console\/inspect/,
+    );
+    expect(detail.body.history).toEqual([
+      { report_date: '2026-11-13', pages: 10, validation: 'Not Started' },
+    ]);
+    await http
+      .get(`/properties/${propertyId}/indexing/reasons/nope`)
+      .set(auth())
+      .expect(400);
+    await http
+      .get(`/properties/${propertyId}/indexing/reasons/${'0'.repeat(32)}`)
+      .set(auth())
+      .expect(404);
+
+    // opportunities: one per defect / unknown reason, none for intentional exclusions, no dupes
+    const opps = async () =>
+      (
+        await http
+          .get(`/opportunities?status=active&property_id=${propertyId}`)
+          .set(auth())
+          .expect(200)
+      ).body.items as {
+        rule: string;
+        key_text: string;
+        evidence: Record<string, unknown>;
+      }[];
+    const newReason = (await opps()).filter(
+      (o) => o.rule === 'indexing_new_reason',
+    );
+    expect(newReason.map((o) => o.key_text).sort()).toEqual([
+      'Brand new reason Google invented',
+      'Not found (404)',
+    ]);
+    const nfOpp = newReason.find((o) => o.key_text === 'Not found (404)')!;
+    expect(nfOpp.evidence).toMatchObject({
+      source: 'gsc_export',
+      scope: 'all_known',
+      report_date: '2026-11-13',
+      previous_report_date: '2026-11-06',
+      pages: 10,
+      previous_pages: 0,
+    });
+    expect((nfOpp.evidence.examples as string[]).length).toBe(10);
+    const indexingCount = (list: { rule: string }[]) =>
+      list.filter((o) => o.rule.startsWith('index')).length;
+    const before = indexingCount(await opps());
+    await http.post('/opportunities/scan').set(auth()).expect(200);
+    expect(indexingCount(await opps())).toBe(before);
+    expect(
+      (await opps()).some((o) => /Alternate page|noindex/.test(o.key_text)),
+    ).toBe(false);
+
+    // URL Inspection: one URL on demand, stored with its raw answer and counted against quota
+    const inspected = await http
+      .post(`/properties/${propertyId}/indexing/inspect`)
+      .set(auth())
+      .send({ url: `${SITE}pricing/` })
+      .expect(200);
+    expect(inspected.body).toMatchObject({
+      url: `${SITE}pricing/`,
+      source: 'url_inspection_api',
+    });
+    expect(inspected.body.latest).toMatchObject({
+      coverage_state: 'URL is unknown to Google',
+      verdict: 'NEUTRAL',
+    });
+    expect(inspected.body.latest.raw).toBeTruthy();
+    expect(inspected.body.latest.inspected_at).toBeTruthy();
+    await http
+      .post(`/properties/${propertyId}/indexing/inspect`)
+      .set(auth())
+      .send({ url: 'https://www.example.org/x/' })
+      .expect(400);
+    await http
+      .post(`/properties/${propertyId}/indexing/inspect`)
+      .set(auth())
+      .send({ url: 'not a url' })
+      .expect(400);
+    const urlDetail = await http
+      .get(`/properties/${propertyId}/indexing/urls/${inspected.body.url_hash}`)
+      .set(auth())
+      .expect(200);
+    expect(urlDetail.body.history).toHaveLength(1);
+    expect(urlDetail.body.tracked.user_added).toBe(true);
+
+    // background refresh: inventory + inspections within the daily budget
+    await http
+      .post(`/properties/${propertyId}/indexing/refresh`)
+      .set(auth())
+      .expect(202);
+    let summary = (
+      await http.get(`/properties/${propertyId}/indexing`).set(auth())
+    ).body.inspection;
+    for (let i = 0; i < 100 && (summary.running || !summary.last_run); i += 1) {
+      await new Promise((r) => setTimeout(r, 200));
+      summary = (
+        await http.get(`/properties/${propertyId}/indexing`).set(auth())
+      ).body.inspection;
+    }
+    expect(summary.running).toBe(false);
+    expect(['ok', 'partial']).toContain(summary.last_run.status);
+    // fixture: one submitted sitemap with 6 URLs of the property (a foreign URL is ignored)
+    expect(summary.last_run.details).toMatchObject({
+      sitemaps: 1,
+      sitemap_urls: 6,
+      inspected: 6,
+      stop_reason: null,
+    });
+    expect(summary.sitemaps).toHaveLength(1);
+    expect(summary.sitemaps[0]).toMatchObject({
+      path: `${SITE}sitemap.xml`,
+      urls_read: 6,
+      urls_truncated: false,
+    });
+    expect(summary.tracked_urls).toBe(7);
+    expect(summary.inspected_urls).toBe(7);
+    expect(summary.indexed_urls).toBe(4);
+    expect(
+      summary.by_coverage.find(
+        (c: { coverage_state: string }) =>
+          c.coverage_state === 'Not found (404)',
+      ),
+    ).toMatchObject({ urls: 1, verdict: 'FAIL' });
+    // sitemap URLs Google does not index become findings; the on-demand URL is not in a sitemap
+    await http.post('/opportunities/scan').set(auth()).expect(200);
+    const notIndexed = (await opps()).filter(
+      (o) => o.rule === 'submitted_not_indexed',
+    );
+    expect(notIndexed.map((o) => o.key_text).sort()).toEqual([
+      `${SITE}blog/lista-de-canales/`,
+      `${SITE}producto/plan-anual-old/`,
+    ]);
+    expect(notIndexed[0].evidence).toMatchObject({
+      source: 'url_inspection_api',
+      sitemap: `${SITE}sitemap.xml`,
+    });
+    const notFoundUrls = await http
+      .get(
+        `/properties/${propertyId}/indexing/urls?coverage=${encodeURIComponent('Not found (404)')}&in_sitemap=1`,
+      )
+      .set(auth())
+      .expect(200);
+    expect(notFoundUrls.body.total).toBe(1);
+    expect(summary.inspected_urls).toBeLessThanOrEqual(summary.tracked_urls);
+    expect(summary.used_today).toBeLessThanOrEqual(summary.daily_budget);
+    expect(summary.used_today).toBeGreaterThanOrEqual(summary.inspected_urls);
+    const urls = await http
+      .get(`/properties/${propertyId}/indexing/urls?search=pricing`)
+      .set(auth())
+      .expect(200);
+    expect(urls.body.source).toBe('url_inspection_api');
+    expect(
+      urls.body.items.some((u: { url: string }) => u.url === `${SITE}pricing/`),
+    ).toBe(true);
+
+    // fleet table
+    const fleet = await http.get('/indexing/overview').set(auth()).expect(200);
+    const row = fleet.body.items.find(
+      (r: { property: { id: number } }) => r.property.id === propertyId,
+    );
+    expect(row).toMatchObject({
+      report_date: '2026-11-13',
+      indexed: 845,
+      not_indexed: 130,
+      previous_indexed: 850,
+    });
+    expect(row.top_defect.reason).toBe('Crawled - currently not indexed');
+    // 30 crawled-not-indexed + 10 not found + 2 indexed though blocked by robots.txt
+    expect(row.defect_pages).toBe(42);
+
+    // exports state the view, report date, source and completeness on every row
+    const csv = await http
+      .get(`/reports/property/${propertyId}/export.csv?section=indexing`)
+      .set(auth())
+      .expect(200);
+    // trim() also drops the BOM; rows end with CRLF
+    const lines = csv.text.trim().split(/\r?\n/);
+    expect(lines[0]).toBe(
+      'site,view,report_date,source,completeness,row_type,group,reason,reason_source,classification,validation,pages,pages_previous_report,first_seen_in_spider',
+    );
+    expect(lines).toHaveLength(1 + 2 + 6);
+    for (const l of lines.slice(1)) {
+      expect(l).toContain(`${SITE},All known pages,2026-11-13,`);
+      expect(l).toMatch(/uploaded export/);
+      expect(l).toMatch(/capped at 1,000 rows/);
+    }
+    expect(
+      lines.some((l) => /,total,indexed,Indexed,,,,845,850,/.test(l)),
+    ).toBe(true);
+    expect(
+      lines.some((l) =>
+        /,reason,not_indexed,Not found \(404\),Website,likely_defect,Not Started,10,0,2026-11-13/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    const subCsv = await http
+      .get(
+        `/reports/property/${propertyId}/export.csv?section=indexing&scope=submitted`,
+      )
+      .set(auth())
+      .expect(200);
+    expect(subCsv.text).toContain('All submitted pages');
+    expect(subCsv.text).not.toContain('845');
+    const trendCsv = await http
+      .get(`/reports/property/${propertyId}/export.csv?section=indexing_trend`)
+      .set(auth())
+      .expect(200);
+    expect(trendCsv.text.trim().split(/\r?\n/)).toHaveLength(3);
+    expect(trendCsv.text).toContain('2026-11-13,845,130');
+
+    const report = await http
+      .post('/reports')
+      .set(auth())
+      .send({
+        name: 'E2E indexing',
+        scope: 'property',
+        property_id: propertyId,
+        config: { period: { days: 28 }, sections: ['indexing'], limit: 50 },
+      })
+      .expect(201);
+    const data = await http
+      .get(`/reports/${report.body.id}/data`)
+      .set(auth())
+      .expect(200);
+    expect(data.body.indexing.blocks).toHaveLength(1);
+    expect(data.body.indexing.blocks[0]).toMatchObject({
+      view: 'All known pages',
+      report_date: '2026-11-13',
+      totals: { indexed: 845, not_indexed: 130 },
+    });
+    expect(data.body.indexing.blocks[0].completeness).toMatch(/URL Inspection/);
+    expect(
+      data.body.indexing.opportunities.some((o: { title: string }) =>
+        /Not found \(404\)/.test(o.title),
+      ),
+    ).toBe(true);
+    const pdf = await http
+      .get(`/reports/${report.body.id}/export.pdf`)
+      .set(auth())
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    const fleetReport = await http
+      .post('/reports')
+      .set(auth())
+      .send({
+        name: 'E2E indexing fleet',
+        scope: 'fleet',
+        config: { period: { days: 28 }, sections: ['indexing'] },
+      })
+      .expect(201);
+    const fleetCsv = await http
+      .get(`/reports/${fleetReport.body.id}/export.csv?section=indexing`)
+      .set(auth())
+      .expect(200);
+    expect(fleetCsv.text).toContain('Not found (404)');
+    await http.delete(`/reports/${report.body.id}`).set(auth()).expect(204);
+    await http
+      .delete(`/reports/${fleetReport.body.id}`)
+      .set(auth())
+      .expect(204);
+
+    // deleting an import removes its rows; unknown ids are 404
+    await http
+      .delete(
+        `/properties/${propertyId}/indexing/imports/${issue.body.import.id}`,
+      )
+      .set(auth())
+      .expect(204);
+    const noExamples = await http
+      .get(`/properties/${propertyId}/indexing/reasons/${nf.reason_hash}`)
+      .set(auth())
+      .expect(200);
+    expect(noExamples.body.examples).toEqual([]);
+    expect(noExamples.body.issue_export).toBeNull();
+    await http
+      .delete(`/properties/${propertyId}/indexing/imports/999999`)
+      .set(auth())
+      .expect(404);
   });
 
   it('webhooks: signed delivery to a local receiver, dedupe, deliveries log, alerts through webhook', async () => {

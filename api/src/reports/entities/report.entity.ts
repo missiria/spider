@@ -19,6 +19,8 @@ export const REPORT_SECTIONS = [
   'devices',
   'search_appearance',
   'opportunities',
+  // Page indexing: report export + URL Inspection summary (MITP-0833)
+  'indexing',
 ] as const;
 export type ReportSection = (typeof REPORT_SECTIONS)[number];
 

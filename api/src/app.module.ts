@@ -15,6 +15,7 @@ import { GscModule } from './gsc/gsc.module';
 import { HealthController } from './health/health.controller';
 import { Property } from './properties/entities/property.entity';
 import { SyncRun } from './sync/entities/sync-run.entity';
+import { IndexingModule } from './indexing/indexing.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { ReportsModule } from './reports/reports.module';
@@ -62,6 +63,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     OverviewModule,
     ViewsModule,
     OpportunitiesModule,
+    IndexingModule,
     IntegrationsModule,
     ReportsModule,
     AdminModule,

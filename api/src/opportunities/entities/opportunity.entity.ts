@@ -19,6 +19,20 @@ export const OPPORTUNITY_RULES = [
   'low_ctr',
   'near_page_one',
   'cannibalization',
+  // Page indexing rules (MITP-0833, ADR-0009)
+  'indexing_new_reason',
+  'indexing_spike',
+  'indexed_drop',
+  'submitted_not_indexed',
+  'indexing_persistent',
+] as const;
+/** Rules fed by Page indexing data rather than Search Analytics. */
+export const INDEXING_RULES = [
+  'indexing_new_reason',
+  'indexing_spike',
+  'indexed_drop',
+  'submitted_not_indexed',
+  'indexing_persistent',
 ] as const;
 export type OpportunityRule = (typeof OPPORTUNITY_RULES)[number];
 

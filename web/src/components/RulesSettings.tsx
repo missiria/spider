@@ -34,6 +34,31 @@ const FIELDS: Record<keyof Omit<RuleConfig, "window_days" | "regression_days">, 
     blurb: "Several pages sharing one query (heuristic, low confidence).",
     fields: { min_impressions: { label: "Min. query impressions" }, min_share: { label: "Each page at least", pct: true } },
   },
+  indexing_new_reason: {
+    title: "New indexing issue",
+    blurb: "A Page indexing reason that was not in the previous imported report. Intentional exclusions are ignored.",
+    fields: { min_pages: { label: "Min. pages" } },
+  },
+  indexing_spike: {
+    title: "Indexing issue growing",
+    blurb: "A reason whose page count grew versus the previous imported report.",
+    fields: { min_increase_pages: { label: "Grew by at least (pages)" }, min_increase_ratio: { label: "Grew by at least", pct: true } },
+  },
+  indexed_drop: {
+    title: "Indexed pages drop",
+    blurb: "Indexed pages fell versus the previous imported report.",
+    fields: { min_previous_indexed: { label: "Min. previous indexed" }, drop_ratio: { label: "Drop at least", pct: true } },
+  },
+  submitted_not_indexed: {
+    title: "Sitemap URL not indexed",
+    blurb: "A sitemap URL whose latest URL Inspection says it is not indexed.",
+    fields: { max_items: { label: "Max. items per property" } },
+  },
+  indexing_persistent: {
+    title: "Indexing issue not fixed",
+    blurb: "A likely defect still present after several imported reports in a row.",
+    fields: { min_imports: { label: "Reports in a row" }, min_pages: { label: "Min. pages" } },
+  },
 };
 
 export function RulesSettings() {
