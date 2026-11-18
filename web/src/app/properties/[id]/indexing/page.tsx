@@ -231,8 +231,9 @@ export default function PropertyIndexingPage() {
             />
           ) : null}
 
+          {mode === "export" && (
           <Card className="mt-6 p-4">
-            <h2 className="font-medium">Import a Search Console export</h2>
+            <h2 className="font-medium">Import a Search Console export <span className="ml-1 rounded-md bg-surface-muted px-1.5 py-0.5 text-xs font-normal text-muted">optional</span></h2>
             <p className="mt-1 text-sm text-muted">
               Upload the ZIP (or CSV) from Indexing → Pages → Export. Use the main report for totals, reasons and the chart, and a reason’s own page for its example URLs. Uploading the same report again replaces it.
             </p>
@@ -286,6 +287,7 @@ export default function PropertyIndexingPage() {
               </div>
             )}
           </Card>
+          )}
 
           {insp && (
             <Card className="mt-6 p-4">
