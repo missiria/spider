@@ -10,7 +10,7 @@ import { Banner, Crumbs, SourceNote, tdCls, thCls, VerdictChip } from "@/compone
 import { Button, Card, ErrorBox, Spinner } from "@/components/ui";
 import { errorMessage, getPropertyIndexing, inspectIndexingUrl, listIndexingUrls, type IndexingUrlFilter } from "@/lib/api";
 import { formatDate, formatInt } from "@/lib/format";
-import { gscInspectUrl, isIndexedCoverage, pathOf } from "@/lib/indexing";
+import { isIndexedCoverage, pathOf } from "@/lib/indexing";
 import type { IndexingUrlList, PropertyIndexing } from "@/lib/types";
 
 export default function IndexingUrlsPage() {
@@ -82,6 +82,11 @@ export default function IndexingUrlsPage() {
             <Search className="h-4 w-4" aria-hidden />
             {inspecting ? "Asking Google…" : "Inspect"}
           </Button>
+          {summary && (
+            <a href={summary.links.search_console} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-muted">
+              Fix in Search Console <ExternalLink className="h-4 w-4" aria-hidden />
+            </a>
+          )}
         </form>
         <p className="mt-2 text-xs text-muted">
           Uses one URL Inspection call{insp ? ` (${formatInt(insp.used_today)} of ${formatInt(insp.daily_budget)} used today)` : ""}. The answer is Google’s indexed version, not a live test.
@@ -119,7 +124,7 @@ export default function IndexingUrlsPage() {
       {filter?.coverage && !isIndexedCoverage(filter.coverage) && (
         <div className="mt-4">
           <Banner tone="warning" title={`${data ? formatInt(data.total) : "These"} URL${data?.total === 1 ? " is" : "s are"} “${filter.coverage}”.`}>
-            Google’s API cannot submit a URL for indexing. Fix the page if needed, then use “Request indexing” on each row: it opens the URL in Search Console, where you click Request indexing (about 10 requests per day per property).
+            Google’s API cannot submit a URL for indexing. Fix the pages if needed, then click “Fix in Search Console” above: it opens this property’s Page indexing report, where you open the reason and use Validate fix, or inspect a URL and click Request indexing (about 10 requests per day per property).
           </Banner>
         </div>
       )}
@@ -134,7 +139,7 @@ export default function IndexingUrlsPage() {
               {data.total === 0 && !filter?.coverage && !filter?.verdict && !filter?.search && !filter?.in_sitemap ? "No tracked URLs yet. Run a refresh on the property’s indexing page, or inspect a URL above." : "No URL matches these filters."}
             </div>
           ) : (
-            <table className="w-full min-w-[1100px] text-sm">
+            <table className="w-full min-w-[960px] text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className={thCls}>URL</th>
@@ -144,7 +149,6 @@ export default function IndexingUrlsPage() {
                   <th className={thCls}>Inspected</th>
                   <th className={`${thCls} text-right`}>Impr. 28 d</th>
                   <th className={thCls}>Tracked from</th>
-                  <th className={thCls}><span className="sr-only">Search Console</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -163,18 +167,6 @@ export default function IndexingUrlsPage() {
                     <td className={`${tdCls} whitespace-nowrap text-muted`}>{formatDate(u.inspected_at)}</td>
                     <td className={`${tdCls} tabular text-right`}>{u.impressions_28d ? formatInt(u.impressions_28d) : "—"}</td>
                     <td className={`${tdCls} text-xs text-muted`}>{[Number(u.in_sitemap) ? "Sitemap" : null, Number(u.in_gsc_pages) ? "Search results" : null, Number(u.user_added) ? "Added" : null].filter(Boolean).join(" · ") || "—"}</td>
-                    <td className={`${tdCls} whitespace-nowrap text-right`}>
-                      {summary &&
-                        (u.inspected_at && !isIndexedCoverage(u.coverage_state) ? (
-                          <a href={gscInspectUrl(summary.property.site_url, u.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-white hover:bg-primary-hover">
-                            Request indexing <ExternalLink className="h-3 w-3" aria-hidden />
-                          </a>
-                        ) : (
-                          <a href={gscInspectUrl(summary.property.site_url, u.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                            Open in Search Console <ExternalLink className="h-3 w-3" aria-hidden />
-                          </a>
-                        ))}
-                    </td>
                   </tr>
                 ))}
               </tbody>
