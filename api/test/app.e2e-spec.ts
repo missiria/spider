@@ -42,6 +42,9 @@ const { SyncService } = require('../src/sync/sync.service');
 const { UsersService } = require('../src/users/users.service');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { WorkspacesService } = require('../src/workspaces/workspaces.service');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const digestModule = require('../src/opportunities/opportunity-digest.service');
+const { OpportunityDigestService } = digestModule;
 
 describe('Spider API (e2e)', () => {
   afterEach(() => jest.useRealTimers()); // a test that pins Date never leaks it
@@ -97,6 +100,7 @@ describe('Spider API (e2e)', () => {
       'webhooks',
       'alert_events',
       'alert_rules',
+      'opportunity_digest_deliveries',
       'report_deliveries',
       'report_schedules',
       'reports',
@@ -2430,5 +2434,192 @@ describe('Spider API (e2e)', () => {
       .post('/admin/accounts/999999/deactivate')
       .set(auth())
       .expect(404);
+  });
+
+  it('weekly opportunities email: /auth/me opt-out, tenant-scoped digest, once per week (MISS-0196)', async () => {
+    const ds = app.get(DataSource);
+    const users = app.get(UsersService);
+    const workspaces = app.get(WorkspacesService);
+    const digest = app.get(OpportunityDigestService);
+    // the cron is registered: Mondays 08:00 Paris whatever the server clock
+    const job = app
+      .get(SchedulerRegistry)
+      .getCronJob('opportunity-weekly-digest');
+    const next = job.nextDate().toJSDate();
+    expect(
+      new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Paris',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).format(next),
+    ).toBe('Mon 08:00');
+    const admin = (
+      await http
+        .post('/auth/login')
+        .send({
+          email: 'e2e-admin@example.com',
+          password: 'E2e-admin-pass-123',
+        })
+        .expect(200)
+    ).body.token as string;
+    const asAdmin = { Authorization: `Bearer ${admin}` };
+
+    // preference: default on, toggled through PATCH /auth/me, strictly typed
+    const me = await http.get('/auth/me').set(asAdmin).expect(200);
+    expect(me.body.weekly_opportunities_email).toBe(true);
+    const off = await http
+      .patch('/auth/me')
+      .set(asAdmin)
+      .send({ weekly_opportunities_email: false })
+      .expect(200);
+    expect(off.body.weekly_opportunities_email).toBe(false);
+    expect(
+      (await http.get('/auth/me').set(asAdmin).expect(200)).body
+        .weekly_opportunities_email,
+    ).toBe(false);
+    await http
+      .patch('/auth/me')
+      .set(asAdmin)
+      .send({ weekly_opportunities_email: 'yes' })
+      .expect(400);
+    await http
+      .patch('/auth/me')
+      .set(asAdmin)
+      .send({ weekly_digest: true })
+      .expect(400);
+    // other members never see someone else's preference
+    const list = await http.get('/users').set(asAdmin).expect(200);
+    expect(JSON.stringify(list.body)).not.toContain(
+      'weekly_opportunities_email',
+    );
+
+    // a second workspace with its own admin and one new opportunity
+    const wsD = await workspaces.create('digest-d', 'Digest D');
+    await users.create({
+      email: 'd-admin@example.com',
+      password: 'Digest-d-pass-123',
+      name: 'D admin',
+      role: 'admin',
+      workspaceId: wsD.id,
+    });
+    const defaultWs = await workspaces.ensureDefault();
+    // earlier tests delete their properties: give the findings a fresh one
+    const digestProperty = (
+      await http
+        .post('/properties')
+        .set(asAdmin)
+        .send({ siteUrl: 'digest.example.com' })
+        .expect(201)
+    ).body.property.id as number;
+    const now = new Date(Date.now() + 60_000);
+    const insertOpp = (wsId: number, title: string, status: string) =>
+      ds.query(
+        `INSERT INTO opportunities (workspace_id, property_id, rule, subject, key_text, fingerprint, status, priority, score, confidence, title, reason, suggested_action, evidence, first_seen_at, last_seen_at)
+         VALUES (?, ?, 'low_ctr', 'query', ?, MD5(?), ?, 'high', 99, 'high', ?, 'Digest e2e reason. More.', 'Act.', '{}', ?, ?)`,
+        [
+          wsId,
+          digestProperty,
+          title,
+          title,
+          status,
+          title,
+          new Date(now.getTime() - 3_600_000),
+          now,
+        ],
+      );
+    await insertOpp(wsD.id, 'D-only digest finding', 'open');
+    await insertOpp(defaultWs.id, 'A digest finding', 'open');
+    await insertOpp(defaultWs.id, 'A dismissed finding', 'dismissed');
+
+    // opted out: the default admin gets nothing, D's admin gets only D's work
+    mails.length = 0;
+    const first = await digest.runWeekly(now);
+    expect(first.skipped).toBeGreaterThanOrEqual(1);
+    expect(
+      mails.find((m) => m.to.includes('e2e-admin@example.com')),
+    ).toBeUndefined();
+    const dMail = mails.find((m) => m.to.includes('d-admin@example.com'))!;
+    expect(dMail.subject).toBe('Spider weekly: 1 new opportunity');
+    expect(dMail.text).toContain('D-only digest finding');
+    expect(dMail.text).not.toContain('A digest finding');
+    expect(dMail.text).toContain('Still open in the inbox: 1');
+    for (const m of mails) expect(m.to).toHaveLength(1);
+
+    // back on: the default admin's digest lists A's work only, not dismissed, not D
+    await http
+      .patch('/auth/me')
+      .set(asAdmin)
+      .send({ weekly_opportunities_email: true })
+      .expect(200);
+    mails.length = 0;
+    await digest.runWeekly(now);
+    const aMail = mails.find((m) => m.to.includes('e2e-admin@example.com'))!;
+    expect(aMail.subject).toMatch(/^Spider weekly: \d+ new opportunit/);
+    expect(aMail.text).toContain('A digest finding');
+    expect(aMail.text).not.toContain('A dismissed finding');
+    expect(aMail.text).not.toContain('D-only digest finding');
+    expect(
+      mails.find((m) => m.to.includes('d-admin@example.com')),
+    ).toBeUndefined(); // already done this week
+
+    // claimed rows: SMTP not configured → skipped, one per (user, workspace, week)
+    const rows = await ds.query(
+      `SELECT d.status, d.error, d.week_key, d.opportunity_count, u.email FROM opportunity_digest_deliveries d JOIN users u ON u.id = d.user_id ORDER BY d.id`,
+    );
+    const mine = rows.filter((r: { email: string }) =>
+      ['e2e-admin@example.com', 'd-admin@example.com'].includes(r.email),
+    );
+    expect(mine).toHaveLength(2);
+    for (const r of mine)
+      expect(r).toMatchObject({
+        status: 'skipped',
+        error: 'SMTP not configured',
+      });
+    expect(mine[0].week_key).toMatch(/^\d{4}-W\d{2}$/);
+
+    // rerun / restart the same week: nothing is sent again
+    mails.length = 0;
+    const again = await digest.runWeekly(now);
+    expect(mails).toHaveLength(0);
+    expect(again.duplicate).toBeGreaterThanOrEqual(2);
+    // the database key itself refuses a second claim
+    const [row] = await ds.query(
+      `SELECT user_id, workspace_id, week_key FROM opportunity_digest_deliveries LIMIT 1`,
+    );
+    await expect(
+      ds.query(
+        `INSERT INTO opportunity_digest_deliveries (user_id, workspace_id, week_key, status) VALUES (?, ?, ?, 'sent')`,
+        [row.user_id, row.workspace_id, row.week_key],
+      ),
+    ).rejects.toMatchObject({ code: 'ER_DUP_ENTRY' });
+
+    // admin-only preview of the caller's workspace, never sent
+    const preview = await http
+      .post('/opportunities/digest/preview')
+      .set(asAdmin)
+      .expect(200);
+    expect(preview.body.text).toContain('A digest finding');
+    expect(preview.body.text).not.toContain('D-only digest finding');
+    expect(mails).toHaveLength(0);
+    const inv = await http
+      .post('/users')
+      .set(asAdmin)
+      .send({ email: 'digest-member@example.com', name: 'Digest member' })
+      .expect(201);
+    const member = (
+      await http
+        .post('/auth/login')
+        .send({
+          email: 'digest-member@example.com',
+          password: inv.body.temporary_password,
+        })
+        .expect(200)
+    ).body.token as string;
+    await http
+      .post('/opportunities/digest/preview')
+      .set({ Authorization: `Bearer ${member}` })
+      .expect(403);
   });
 });

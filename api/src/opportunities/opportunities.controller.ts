@@ -21,6 +21,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { AuthUser } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.guard';
 import {
   OPPORTUNITY_PRIORITIES,
   OPPORTUNITY_STATUSES,
@@ -28,6 +29,7 @@ import {
   OpportunityStatus,
 } from './entities/opportunity.entity';
 import { OpportunitiesService } from './opportunities.service';
+import { OpportunityDigestService } from './opportunity-digest.service';
 
 class UpdateOpportunityDto {
   @IsOptional()
@@ -67,7 +69,10 @@ class PromptCopiedDto {
 
 @Controller('opportunities')
 export class OpportunitiesController {
-  constructor(private readonly opportunities: OpportunitiesService) {}
+  constructor(
+    private readonly opportunities: OpportunitiesService,
+    private readonly digest: OpportunityDigestService,
+  ) {}
 
   @Get()
   list(
@@ -102,6 +107,14 @@ export class OpportunitiesController {
   @HttpCode(200)
   scan() {
     return this.opportunities.scan();
+  }
+
+  /** MISS-0196: this week's digest of the caller's workspace, rendered but never sent. */
+  @Roles('admin')
+  @Post('digest/preview')
+  @HttpCode(200)
+  digestPreview() {
+    return this.digest.preview();
   }
 
   @Get(':id')

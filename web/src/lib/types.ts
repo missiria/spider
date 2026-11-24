@@ -190,6 +190,8 @@ export interface User {
   email: string;
   name: string;
   role: string;
+  /** only on GET/PATCH /auth/me: Monday digest of new opportunities (MISS-0196) */
+  weekly_opportunities_email?: boolean;
   created_at: string;
 }
 
@@ -584,7 +586,11 @@ export interface LiveIndexing {
     pages: number;
     trend: { date: string; pages: number }[];
     /** open or in-progress opportunities raised from this reason */
-    opportunities?: { id: number; rule: OpportunityRule; status: OpportunityStatus }[];
+    opportunities?: {
+      id: number;
+      rule: OpportunityRule;
+      status: OpportunityStatus;
+    }[];
   }[];
 }
 
@@ -627,7 +633,11 @@ export interface IndexingInspectionSummary {
   inspected_urls: number;
   indexed_urls: number;
   tracked_urls: number;
-  by_coverage: { coverage_state: string; verdict: string | null; urls: number }[];
+  by_coverage: {
+    coverage_state: string;
+    verdict: string | null;
+    urls: number;
+  }[];
   daily_budget: number;
   used_today: number;
   running: boolean;
@@ -646,7 +656,10 @@ export interface IndexingInspectionSummary {
 export interface PropertyIndexing {
   property: IndexingPropertyRef;
   scope: IndexingScopeRef;
-  scopes: (IndexingScopeRef & { scope_hash: string; last_report_date: string })[];
+  scopes: (IndexingScopeRef & {
+    scope_hash: string;
+    last_report_date: string;
+  })[];
   report: {
     import_id: number;
     report_date: string;
@@ -689,7 +702,11 @@ export interface IndexingReasonDetail {
     example_rows: number;
   } | null;
   trend: { date: string; pages: number | null }[];
-  examples: { url: string; last_crawled: string | null; inspect_link: string }[];
+  examples: {
+    url: string;
+    last_crawled: string | null;
+    inspect_link: string;
+  }[];
   links: { search_console: string };
 }
 
@@ -816,7 +833,12 @@ export interface IndexingFleet {
 export interface IndexingImportResult {
   import: IndexingImportRow & { trend_rows: number };
   replaced: boolean;
-  opportunities: { findings: number; created: number; updated: number; skipped: number } | null;
+  opportunities: {
+    findings: number;
+    created: number;
+    updated: number;
+    skipped: number;
+  } | null;
 }
 
 export interface IndexingReportBlock {
@@ -860,6 +882,11 @@ export interface IndexingReportBlock {
     completeness: string;
     indexed: number;
     not_indexed: number;
-    reasons: { reason: string; source: string; intent: string; pages: number }[];
+    reasons: {
+      reason: string;
+      source: string;
+      intent: string;
+      pages: number;
+    }[];
   } | null;
 }
