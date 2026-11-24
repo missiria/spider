@@ -1,4 +1,5 @@
 import axios, { AxiosError } from "axios";
+import type { PageSize } from "./pagination";
 import { clearStoredFilters } from "./persistedFilter";
 import type {
   AuthResponse,
@@ -622,6 +623,8 @@ export interface IndexingUrlFilter {
   in_sitemap?: "1";
   search?: string;
   page?: number;
+  /** rows per page: 10 (default), 50 or 250 (MISS-0195) */
+  page_size?: PageSize;
 }
 export const listIndexingUrls = (id: number, f: IndexingUrlFilter) =>
   api

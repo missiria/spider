@@ -33,6 +33,7 @@ import {
   reasonSource,
   scopeHash,
 } from './reasons';
+import { DEFAULT_URL_PAGE_SIZE } from './url-page-size';
 
 /** An import older than this is flagged stale in the UI and in reports. */
 export const INDEXING_STALE_DAYS = 14;
@@ -740,6 +741,8 @@ export class IndexingService {
       in_sitemap?: string;
       search?: string;
       page?: number;
+      /** 10, 50 or 250, validated by the controller (MISS-0195) */
+      page_size?: number;
     },
   ) {
     const property = await this.properties.get(propertyId);
@@ -758,7 +761,8 @@ export class IndexingService {
       where.push('t.url LIKE ?');
       params.push(`%${q.search.replace(/[%_]/g, '')}%`);
     }
-    const page = Math.max(1, q.page ?? 1);
+    const page = Math.max(1, Number.isFinite(q.page) ? (q.page as number) : 1);
+    const pageSize = q.page_size ?? DEFAULT_URL_PAGE_SIZE;
     const sql = `FROM tracked_urls t
       LEFT JOIN (SELECT url_hash, MAX(id) AS id FROM url_inspections WHERE property_id = ? GROUP BY url_hash) l ON l.url_hash = t.url_hash
       LEFT JOIN url_inspections i ON i.id = l.id
@@ -771,13 +775,13 @@ export class IndexingService {
               i.last_crawl_time, i.google_canonical, i.user_canonical, i.error
        ${sql}
        ORDER BY (i.verdict = 'PASS') ASC, t.impressions_28d DESC, t.id ASC
-       LIMIT 100 OFFSET ?`,
-      [...all, (page - 1) * 100],
+       LIMIT ? OFFSET ?`,
+      [...all, pageSize, (page - 1) * pageSize],
     );
     return {
       total: Number(n),
       page,
-      page_size: 100,
+      page_size: pageSize,
       items,
       source: 'url_inspection_api' as const,
     };

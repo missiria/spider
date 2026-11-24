@@ -20,6 +20,7 @@ import { OpportunitiesService } from '../opportunities/opportunities.service';
 import { PropertiesService } from '../properties/properties.service';
 import { IndexingCollectorService } from './indexing-collector.service';
 import { IndexingService } from './indexing.service';
+import { parseUrlPageSize } from './url-page-size';
 
 const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
 
@@ -159,6 +160,7 @@ export class IndexingController {
     @Query('in_sitemap') in_sitemap?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
   ) {
     return this.indexing.urls(id, {
       coverage,
@@ -166,6 +168,7 @@ export class IndexingController {
       in_sitemap,
       search,
       page: page ? Number.parseInt(page, 10) : 1,
+      page_size: parseUrlPageSize(pageSize),
     });
   }
 

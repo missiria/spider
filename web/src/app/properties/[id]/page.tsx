@@ -23,6 +23,7 @@ import {
 import { AppShell } from "@/components/AppShell";
 import { IndexingAlert } from "@/components/indexing/IndexingAlert";
 import { CountryMap } from "@/components/CountryMap";
+import { TablePagination } from "@/components/TablePagination";
 import { ExportMenu, type ExportMenuItem } from "@/components/ExportMenu";
 import { copyText, toTsv, topRowsTable } from "@/lib/exportTable";
 import { PeriodPicker } from "@/components/PeriodPicker";
@@ -66,6 +67,7 @@ import {
   type TopSortKey,
   type TopTableState,
 } from "@/lib/topTable";
+import { DEFAULT_PAGE_SIZE, paginate, type PageSize } from "@/lib/pagination";
 import type {
   Dimension,
   DimensionBreakdown,
@@ -261,6 +263,14 @@ function RegexFilters({
   );
 }
 
+const PAGINATION_NOUN: Record<Kind, string> = {
+  page: "Top pages",
+  query: "Top queries",
+  country: "Countries",
+  device: "Devices",
+  search_appearance: "Search appearance",
+};
+
 function TopTable({
   title,
   breakdown,
@@ -293,6 +303,11 @@ function TopTable({
   const rows = useMemo(() => toRows(breakdown), [breakdown]);
   const [state, setState] = useState<TopTableState>(DEFAULT_TOP_STATE);
   const visible = useMemo(() => applyTopState(rows, state), [rows, state]);
+  // GSC-style paging (MISS-0195): 10 rows by default; back to page 1 whenever the list changes
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  useEffect(() => setPage(1), [state, breakdown]);
+  const paged = paginate(visible, page, pageSize);
   const filtered = state.search !== "" || state.minClicks > 0;
   const wide = kind === "page" || kind === "query";
   const noun =
@@ -313,10 +328,11 @@ function TopTable({
           key: "copy",
           group: "Copy",
           kind: "copy",
-          label: `Copy ${visible.length} row${visible.length === 1 ? "" : "s"} shown`,
+          label: `Copy ${visible.length} filtered row${visible.length === 1 ? "" : "s"}`,
           onSelect: () => {
             void (async () => {
-              // Copy = exactly the rows on screen (search, minimum clicks and sort applied)
+              // Copy = every row matching search + minimum clicks, in the table's sort order,
+              // across all pages (not only the page on screen, MISS-0195)
               const table = topRowsTable(title, keyLabel, visible, (k) =>
                 kind === "page" || kind === "query" ? k : labelFor(kind, k),
               );
@@ -464,142 +480,155 @@ function TopTable({
             : "No rows yet."}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className={`w-full text-sm ${wide ? "table-fixed" : ""}`}>
-            {wide && (
-              <colgroup>
-                <col />
-                <col className="w-24" />
-                <col className="w-24" />
-                <col className="w-20" />
-                <col className="w-16" />
-                <col className="w-36" />
-              </colgroup>
-            )}
-            <thead>
-              <tr className="border-b border-border text-xs uppercase tracking-wide text-muted">
-                {TOP_COLUMNS.map((col) => {
-                  const active = state.sortKey === col.key;
-                  const Icon = active
-                    ? state.sortDir === "asc"
-                      ? ArrowUp
-                      : ArrowDown
-                    : ArrowUpDown;
-                  return (
-                    <th
-                      key={col.key}
-                      scope="col"
-                      className={`px-4 py-2 font-medium ${col.align === "right" ? "text-right" : "text-left"}`}
-                      aria-sort={
-                        active
-                          ? state.sortDir === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                      }
-                    >
-                      <button
-                        type="button"
-                        title={col.title}
-                        onClick={() =>
-                          setState((s) => toggleTopSort(s, col.key))
-                        }
-                        className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-foreground ${active ? "text-foreground" : ""} ${col.align === "right" ? "flex-row-reverse" : ""}`}
-                      >
-                        {col.label(kind)}
-                        <Icon
-                          className={`h-3 w-3 ${active ? "" : "opacity-40"}`}
-                          aria-hidden
-                        />
-                      </button>
-                    </th>
-                  );
-                })}
-                {wide && (
-                  <th className="px-4 py-2 text-right font-medium">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={wide ? 6 : 5}
-                    className="px-4 py-8 text-center text-muted"
-                  >
-                    No row matches these filters.
-                  </td>
-                </tr>
+        <>
+          <div className="overflow-x-auto">
+            <table className={`w-full text-sm ${wide ? "table-fixed" : ""}`}>
+              {wide && (
+                <colgroup>
+                  <col />
+                  <col className="w-24" />
+                  <col className="w-24" />
+                  <col className="w-20" />
+                  <col className="w-16" />
+                  <col className="w-36" />
+                </colgroup>
               )}
-              {visible.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b border-border/60 hover:bg-surface-muted/60"
-                >
-                  <td
-                    className={`px-4 py-1.5 ${wide ? "break-all" : "whitespace-nowrap"}`}
-                    title={r.key_text}
-                  >
-                    {onSelect ? (
-                      <button
-                        type="button"
-                        onClick={() => onSelect(r.key_text)}
-                        aria-pressed={selected?.includes(r.key_text) ?? false}
-                        title={`Filter the page to ${labelFor(kind, r.key_text)}`}
-                        className={`text-left hover:text-primary ${selected?.includes(r.key_text) ? "font-semibold text-primary" : ""}`}
+              <thead>
+                <tr className="border-b border-border text-xs uppercase tracking-wide text-muted">
+                  {TOP_COLUMNS.map((col) => {
+                    const active = state.sortKey === col.key;
+                    const Icon = active
+                      ? state.sortDir === "asc"
+                        ? ArrowUp
+                        : ArrowDown
+                      : ArrowUpDown;
+                    return (
+                      <th
+                        key={col.key}
+                        scope="col"
+                        className={`px-4 py-2 font-medium ${col.align === "right" ? "text-right" : "text-left"}`}
+                        aria-sort={
+                          active
+                            ? state.sortDir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
                       >
-                        {labelFor(kind, r.key_text)}
-                      </button>
-                    ) : (
-                      labelFor(kind, r.key_text)
-                    )}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
-                    {formatInt(r.clicks)}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
-                    {formatInt(r.impressions)}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
-                    {formatPct(r.ctr)}
-                  </td>
-                  <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
-                    {formatPosition(r.position)}
-                  </td>
+                        <button
+                          type="button"
+                          title={col.title}
+                          onClick={() =>
+                            setState((s) => toggleTopSort(s, col.key))
+                          }
+                          className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-foreground ${active ? "text-foreground" : ""} ${col.align === "right" ? "flex-row-reverse" : ""}`}
+                        >
+                          {col.label(kind)}
+                          <Icon
+                            className={`h-3 w-3 ${active ? "" : "opacity-40"}`}
+                            aria-hidden
+                          />
+                        </button>
+                      </th>
+                    );
+                  })}
                   {wide && (
-                    <td className="px-4 py-1.5 text-right">
-                      {kind === "page" && (
-                        <a
-                          href={r.key_text}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline"
-                        >
-                          View page{" "}
-                          <ExternalLink className="h-3 w-3" aria-hidden />
-                        </a>
-                      )}
-                      {kind === "query" && (
-                        <a
-                          href={googleSiteSearch(host, r.key_text)}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={`site:${host} "${r.key_text}"`}
-                          className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline"
-                        >
-                          View in Google{" "}
-                          <ExternalLink className="h-3 w-3" aria-hidden />
-                        </a>
-                      )}
-                    </td>
+                    <th className="px-4 py-2 text-right font-medium">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {visible.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={wide ? 6 : 5}
+                      className="px-4 py-8 text-center text-muted"
+                    >
+                      No row matches these filters.
+                    </td>
+                  </tr>
+                )}
+                {paged.rows.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="border-b border-border/60 hover:bg-surface-muted/60"
+                  >
+                    <td
+                      className={`px-4 py-1.5 ${wide ? "break-all" : "whitespace-nowrap"}`}
+                      title={r.key_text}
+                    >
+                      {onSelect ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelect(r.key_text)}
+                          aria-pressed={selected?.includes(r.key_text) ?? false}
+                          title={`Filter the page to ${labelFor(kind, r.key_text)}`}
+                          className={`text-left hover:text-primary ${selected?.includes(r.key_text) ? "font-semibold text-primary" : ""}`}
+                        >
+                          {labelFor(kind, r.key_text)}
+                        </button>
+                      ) : (
+                        labelFor(kind, r.key_text)
+                      )}
+                    </td>
+                    <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
+                      {formatInt(r.clicks)}
+                    </td>
+                    <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
+                      {formatInt(r.impressions)}
+                    </td>
+                    <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
+                      {formatPct(r.ctr)}
+                    </td>
+                    <td className="tabular whitespace-nowrap px-4 py-1.5 text-right">
+                      {formatPosition(r.position)}
+                    </td>
+                    {wide && (
+                      <td className="px-4 py-1.5 text-right">
+                        {kind === "page" && (
+                          <a
+                            href={r.key_text}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline"
+                          >
+                            View page{" "}
+                            <ExternalLink className="h-3 w-3" aria-hidden />
+                          </a>
+                        )}
+                        {kind === "query" && (
+                          <a
+                            href={googleSiteSearch(host, r.key_text)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`site:${host} "${r.key_text}"`}
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-primary hover:underline"
+                          >
+                            View in Google{" "}
+                            <ExternalLink className="h-3 w-3" aria-hidden />
+                          </a>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <TablePagination
+            total={visible.length}
+            page={paged.page}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={(n) => {
+              setPageSize(n);
+              setPage(1);
+            }}
+            noun={PAGINATION_NOUN[kind]}
+          />
+        </>
       )}
     </Card>
   );
