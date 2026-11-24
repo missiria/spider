@@ -21,6 +21,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { AuthUser } from '../auth/jwt.strategy';
+import { parseUrlPageSize } from '../indexing/url-page-size';
 import { Roles } from '../auth/roles.guard';
 import {
   OPPORTUNITY_PRIORITIES,
@@ -82,15 +83,28 @@ export class OpportunitiesController {
     @Query('priority') priority?: string,
     @Query('subject') subject?: string,
     @Query('assignee_id') assigneeId?: string,
+    @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
   ) {
-    return this.opportunities.list({
-      status: status ?? 'active',
-      property_id: propertyId ? Number(propertyId) : undefined,
-      rule,
-      priority,
-      subject,
-      assignee_id: assigneeId ? Number(assigneeId) : undefined,
-    });
+    // MISS-0197: paged when page_size (10, 50 or 250) is given; the full list otherwise
+    const paging =
+      pageSize === undefined || pageSize === ''
+        ? undefined
+        : {
+            page: page ? Number.parseInt(page, 10) : 1,
+            page_size: parseUrlPageSize(pageSize),
+          };
+    return this.opportunities.list(
+      {
+        status: status ?? 'active',
+        property_id: propertyId ? Number(propertyId) : undefined,
+        rule,
+        priority,
+        subject,
+        assignee_id: assigneeId ? Number(assigneeId) : undefined,
+      },
+      paging,
+    );
   }
 
   @Get('rules')

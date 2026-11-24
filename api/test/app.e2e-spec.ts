@@ -340,6 +340,38 @@ describe('Spider API (e2e)', () => {
       .expect(200);
     const id = list.body.items[0].id;
     expect(list.body.items[0].title).not.toMatch(/penalt/i);
+    // MISS-0197: without page_size the full list; with it one clamped page of 10, 50 or 250
+    const all = list.body.items.map((o: { id: number }) => o.id);
+    expect(list.body).toMatchObject({
+      total: all.length,
+      page: 1,
+      page_size: null,
+    });
+    const paged = await http
+      .get('/opportunities?status=active&page_size=10')
+      .set(auth())
+      .expect(200);
+    expect(paged.body).toMatchObject({
+      total: all.length,
+      page: 1,
+      page_size: 10,
+    });
+    expect(paged.body.items.map((o: { id: number }) => o.id)).toEqual(
+      all.slice(0, 10),
+    );
+    const lastPage = Math.max(1, Math.ceil(all.length / 10));
+    const beyond = await http
+      .get('/opportunities?status=active&page_size=10&page=9999')
+      .set(auth())
+      .expect(200);
+    expect(beyond.body.page).toBe(lastPage);
+    expect(beyond.body.items.map((o: { id: number }) => o.id)).toEqual(
+      all.slice((lastPage - 1) * 10),
+    );
+    await http
+      .get('/opportunities?status=active&page_size=7')
+      .set(auth())
+      .expect(400);
     // the scored priority depends on the fixture dates: always ask for a different one
     const priority = list.body.items[0].priority === 'high' ? 'low' : 'high';
     const upd = await http

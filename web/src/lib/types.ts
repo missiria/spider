@@ -294,6 +294,12 @@ export interface OpportunityList {
   items: Opportunity[];
   counts: Record<OpportunityStatus, number>;
   scanning: boolean;
+  /** rows matching the filters, across every page (MISS-0197) */
+  total: number;
+  /** page returned, clamped by the server */
+  page: number;
+  /** null when the full list was asked for */
+  page_size: number | null;
 }
 
 export interface RuleConfig {

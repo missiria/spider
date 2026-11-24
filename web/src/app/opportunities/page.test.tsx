@@ -87,3 +87,92 @@ describe("Opportunities list remembers its filters (MISS-0189)", () => {
     expect(readStored("opportunities")).toEqual({ status: "open", property_id: 99 });
   });
 });
+
+// each case renders up to 50 cards with 4 controls: slow in jsdom on a busy machine
+describe("Opportunities list is paged (MISS-0197)", { timeout: 30_000 }, () => {
+  const item = (id: number) => ({
+    id,
+    property_id: 3,
+    rule: "low_ctr",
+    subject: "page",
+    key_text: `https://example.com/p${id}`,
+    status: "open",
+    priority: "medium",
+    score: 50,
+    confidence: "medium",
+    title: `Opportunity ${id}`,
+    reason: "",
+    suggested_action: "",
+    evidence: {},
+    assignee_id: null,
+    due_date: null,
+    completed_at: null,
+    dismissed_at: null,
+    first_seen_at: "2026-11-01T00:00:00.000Z",
+    last_seen_at: "2026-11-20T00:00:00.000Z",
+  });
+  const lastPaging = () => listOpportunities.mock.calls.at(-1)?.[1];
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    // 478 rows on the server, one page of them in the response
+    listOpportunities.mockImplementation(async (_f: unknown, paging: { page: number; page_size: number }) => {
+      const last = Math.ceil(478 / paging.page_size);
+      const page = Math.min(paging.page, last);
+      const from = (page - 1) * paging.page_size;
+      const n = Math.min(paging.page_size, 478 - from);
+      return { items: Array.from({ length: n }, (_, i) => item(from + i + 1)), counts: { open: 421, in_progress: 57, done: 32, dismissed: 0 }, scanning: false, total: 478, page, page_size: paging.page_size };
+    });
+    getProperties.mockResolvedValue({ items: [{ id: 3, display_name: "iptv-premium-europe.com" }] });
+    listUsers.mockResolvedValue({ items: [] });
+  });
+  afterEach(cleanup);
+
+  it("asks for 10 rows, shows the total and moves between pages", async () => {
+    render(<OpportunitiesPage />);
+    await screen.findByText("Opportunity 1");
+    expect(lastPaging()).toEqual({ page: 1, page_size: 10 });
+    expect(screen.getAllByRole("link", { name: /^Opportunity \d+$/ })).toHaveLength(10);
+    expect(screen.getByText("478 items")).toBeTruthy();
+    expect(screen.getByText("1–10 of 478")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Opportunity 11");
+    expect(lastPaging()).toEqual({ page: 2, page_size: 10 });
+    expect(screen.getByText("11–20 of 478")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Rows per page"), { target: { value: "50" } });
+    await screen.findByText("1–50 of 478");
+    expect(lastPaging()).toEqual({ page: 1, page_size: 50 });
+  });
+
+  it("goes back to page 1 when a filter changes", async () => {
+    render(<OpportunitiesPage />);
+    await screen.findByText("Opportunity 1");
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Opportunity 11");
+    fireEvent.change(screen.getByLabelText("Rule"), { target: { value: "low_ctr" } });
+    await waitFor(() => expect(lastFilter()).toEqual({ status: "active", rule: "low_ctr" }));
+    expect(lastPaging()).toEqual({ page: 1, page_size: 10 });
+  });
+
+  it("comes back on the page left, and follows the server when that page no longer exists", async () => {
+    writeStored("opportunities:paging", { page: 3, page_size: 50 });
+    const first = render(<OpportunitiesPage />);
+    await screen.findByText("101–150 of 478");
+    for (const [, p] of listOpportunities.mock.calls) expect(p).toEqual({ page: 3, page_size: 50 });
+    first.unmount();
+
+    writeStored("opportunities:paging", { page: 99, page_size: 50 });
+    render(<OpportunitiesPage />);
+    await screen.findByText("451–478 of 478");
+    expect(readStored("opportunities:paging")).toEqual({ page: 10, page_size: 50 });
+  });
+
+  it("ignores a stored page size that is not 10, 50 or 250", async () => {
+    writeStored("opportunities:paging", { page: -4, page_size: 7 });
+    render(<OpportunitiesPage />);
+    await screen.findByText("1–10 of 478");
+    expect(lastPaging()).toEqual({ page: 1, page_size: 10 });
+  });
+});

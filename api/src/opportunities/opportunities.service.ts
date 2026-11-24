@@ -381,7 +381,11 @@ export class OpportunitiesService {
 
   // ---- read ------------------------------------------------------------
 
-  async list(filter: ListFilter) {
+  /**
+   * Without `paging` every matching row is returned (reports, API consumers). With it, one
+   * page (MISS-0197); the page is clamped so a list that shrank never comes back blank.
+   */
+  async list(filter: ListFilter, paging?: { page: number; page_size: number }) {
     const ws = await this.workspaces.current();
     const qb = this.repo
       .createQueryBuilder('o')
@@ -402,8 +406,26 @@ export class OpportunitiesService {
       qb.andWhere('o.assignee_id = :aid', { aid: filter.assignee_id });
     qb.orderBy("FIELD(o.status,'open','in_progress','done','dismissed')", 'ASC')
       .addOrderBy('o.score', 'DESC')
-      .addOrderBy('o.last_seen_at', 'DESC');
-    const items = await qb.getMany();
+      .addOrderBy('o.last_seen_at', 'DESC')
+      .addOrderBy('o.id', 'DESC'); // stable order across pages
+    let items: Opportunity[];
+    let total: number;
+    let page = 1;
+    if (paging) {
+      total = await qb.getCount();
+      const last = Math.max(1, Math.ceil(total / paging.page_size));
+      page = Math.min(
+        Math.max(1, Number.isFinite(paging.page) ? Math.floor(paging.page) : 1),
+        last,
+      );
+      items = await qb
+        .skip((page - 1) * paging.page_size)
+        .take(paging.page_size)
+        .getMany();
+    } else {
+      items = await qb.getMany();
+      total = items.length;
+    }
     const counts = await this.repo
       .createQueryBuilder('o')
       .select('o.status', 'status')
@@ -420,6 +442,9 @@ export class OpportunitiesService {
         ]),
       ),
       scanning: this.scanning,
+      total,
+      page,
+      page_size: paging?.page_size ?? null,
     };
   }
 

@@ -239,9 +239,15 @@ export interface OpportunityFilter {
   assignee_id?: number;
 }
 
-export const listOpportunities = (f: OpportunityFilter) =>
+/** One page of the list (MISS-0197); without `paging` the API returns every row. */
+export const listOpportunities = (
+  f: OpportunityFilter,
+  paging?: { page: number; page_size: number },
+) =>
   api
-    .get<OpportunityList>("/opportunities", { params: compact(f) })
+    .get<OpportunityList>("/opportunities", {
+      params: { ...compact(f), ...paging },
+    })
     .then((r) => r.data);
 
 export const getOpportunity = (id: number) =>

@@ -5,19 +5,37 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { RefreshCw, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { TablePagination } from "@/components/TablePagination";
 import { Button, Card, EmptyState, ErrorBox, Spinner } from "@/components/ui";
 import { errorMessage, getProperties, listOpportunities, listUsers, scanOpportunities, updateOpportunity, type OpportunityFilter } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { confidenceLabel, DEFAULT_OPPORTUNITY_FILTER, isOverdue, PRIORITY_LABELS, priorityTone, RULE_LABELS, sanitizeOpportunityFilter, STATUS_LABELS, STATUS_TABS, statusTone, SUBJECT_LABELS, subjectLabel } from "@/lib/opportunities";
+import { confidenceLabel, DEFAULT_OPPORTUNITY_FILTER, DEFAULT_OPPORTUNITY_PAGING, isOverdue, PRIORITY_LABELS, priorityTone, RULE_LABELS, sanitizeOpportunityFilter, sanitizeOpportunityPaging, STATUS_LABELS, STATUS_TABS, statusTone, SUBJECT_LABELS, subjectLabel } from "@/lib/opportunities";
 import { sameFilter } from "@/lib/persistedFilter";
 import { usePersistedFilter } from "@/lib/usePersistedFilter";
 import type { Opportunity, OpportunityList, OpportunityPriority, OpportunityStatus, PropertyRow, User } from "@/lib/types";
 
 const FILTER_NAME = "opportunities";
+const PAGING_NAME = "opportunities:paging";
 
 export default function OpportunitiesPage() {
   // remembered for the login session: survives the detail view, other sections and a reload (MISS-0189)
-  const { value: filter, setValue: setFilter, reset: resetFilter, ready } = usePersistedFilter<OpportunityFilter>(FILTER_NAME, DEFAULT_OPPORTUNITY_FILTER, sanitizeOpportunityFilter);
+  const { value: filter, setValue: setFilterRaw, reset: resetFilterRaw, ready: filterReady } = usePersistedFilter<OpportunityFilter>(FILTER_NAME, DEFAULT_OPPORTUNITY_FILTER, sanitizeOpportunityFilter);
+  // page and rows per page, remembered the same way so "← Opportunities" lands on the page left (MISS-0197)
+  const { value: paging, setValue: setPaging, ready: pagingReady } = usePersistedFilter(PAGING_NAME, DEFAULT_OPPORTUNITY_PAGING, sanitizeOpportunityPaging);
+  const ready = filterReady && pagingReady;
+  const firstPage = useCallback(() => setPaging((p) => (p.page === 1 ? p : { ...p, page: 1 })), [setPaging]);
+  // a filter chosen by the user restarts at page 1
+  const setFilter = useCallback(
+    (next: (f: OpportunityFilter) => OpportunityFilter) => {
+      setFilterRaw(next);
+      firstPage();
+    },
+    [setFilterRaw, firstPage],
+  );
+  const resetFilter = () => {
+    resetFilterRaw();
+    firstPage();
+  };
   const [data, setData] = useState<OpportunityList | null>(null);
   const [properties, setProperties] = useState<PropertyRow[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -29,12 +47,15 @@ export default function OpportunitiesPage() {
 
   const load = useCallback(async () => {
     try {
-      setData(await listOpportunities(filter));
+      const res = await listOpportunities(filter, paging);
+      setData(res);
       setError(null);
+      // the list shrank under the remembered page: follow the page the server clamped to
+      if (typeof res.page === "number" && res.page !== paging.page) setPaging((p) => ({ ...p, page: res.page }));
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, [filter]);
+  }, [filter, paging, setPaging]);
 
   useEffect(() => {
     // wait for the remembered filter, so the list is never fetched with the defaults first
@@ -59,11 +80,11 @@ export default function OpportunitiesPage() {
   // a remembered property or assignee that no longer exists is dropped silently
   useEffect(() => {
     if (!ready || (!propertyIds && !userIds)) return;
-    setFilter((f) => {
+    setFilterRaw((f) => {
       const clean = sanitizeOpportunityFilter(f, { propertyIds: propertyIds ?? undefined, userIds: userIds ?? undefined });
       return sameFilter(f, clean) ? f : clean;
     });
-  }, [ready, propertyIds, userIds, setFilter]);
+  }, [ready, propertyIds, userIds, setFilterRaw]);
 
   const propertyName = useMemo(() => new Map(properties.map((p) => [p.id, p.display_name])), [properties]);
   const userName = useMemo(() => new Map(users.map((u) => [u.id, u.name])), [users]);
@@ -164,7 +185,7 @@ export default function OpportunitiesPage() {
             Reset filters
           </button>
         )}
-        {data && <span className="ml-auto text-xs text-muted">{data.items.length} item{data.items.length === 1 ? "" : "s"}</span>}
+        {data && <span className="ml-auto text-xs text-muted">{data.total} item{data.total === 1 ? "" : "s"}</span>}
       </div>
 
       {error && <div className="mt-4"><ErrorBox message={error} /></div>}
@@ -234,6 +255,15 @@ export default function OpportunitiesPage() {
               </div>
             </Card>
           ))}
+          <TablePagination
+            noun="Opportunities"
+            total={data.total}
+            page={data.page}
+            pageSize={paging.page_size}
+            onPage={(page) => setPaging((p) => ({ ...p, page }))}
+            onPageSize={(page_size) => setPaging({ page: 1, page_size })}
+            className="rounded-md border border-border bg-surface"
+          />
         </div>
       )}
     </AppShell>

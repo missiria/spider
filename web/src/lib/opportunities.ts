@@ -1,4 +1,5 @@
 import type { OpportunityFilter } from "./api";
+import { DEFAULT_PAGE_SIZE, isPageSize, type PageSize } from "./pagination";
 import type { OpportunityPriority, OpportunityRule, OpportunityStatus, OpportunitySubject } from "./types";
 
 export const RULE_LABELS: Record<OpportunityRule, string> = {
@@ -97,4 +98,17 @@ export function sanitizeOpportunityFilter(raw: unknown, known: { propertyIds?: n
   const assignee = positiveInt(r.assignee_id);
   if (assignee && (!known.userIds || known.userIds.includes(assignee))) out.assignee_id = assignee;
   return out;
+}
+
+/** Page and rows per page of the list, remembered with the filters (MISS-0197). */
+export interface OpportunityPaging {
+  page: number;
+  page_size: PageSize;
+}
+
+export const DEFAULT_OPPORTUNITY_PAGING: OpportunityPaging = { page: 1, page_size: DEFAULT_PAGE_SIZE };
+
+export function sanitizeOpportunityPaging(raw: unknown): OpportunityPaging {
+  const r = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  return { page: positiveInt(r.page) ?? 1, page_size: isPageSize(r.page_size) ? r.page_size : DEFAULT_PAGE_SIZE };
 }
