@@ -893,6 +893,41 @@ describe('Spider API (e2e)', () => {
       .set(auth())
       .expect(200);
     expect(exampleUrls.body.total).toBe(10);
+    // GSC-style rows per page (MISS-0195): 10 by default, 10 / 50 / 250 only
+    expect(exampleUrls.body.page_size).toBe(10);
+    expect(exampleUrls.body.items).toHaveLength(10);
+    const firstTen = await http
+      .get(`/properties/${propertyId}/indexing/urls`)
+      .set(auth())
+      .expect(200);
+    expect(firstTen.body).toMatchObject({ page: 1, page_size: 10 });
+    expect(firstTen.body.items).toHaveLength(10);
+    const secondTen = await http
+      .get(`/properties/${propertyId}/indexing/urls?page=2&page_size=10`)
+      .set(auth())
+      .expect(200);
+    expect(secondTen.body.items.length).toBe(
+      Math.min(10, firstTen.body.total - 10),
+    );
+    expect(
+      secondTen.body.items.some((u: { url_hash: string }) =>
+        firstTen.body.items.some(
+          (f: { url_hash: string }) => f.url_hash === u.url_hash,
+        ),
+      ),
+    ).toBe(false);
+    const fifty = await http
+      .get(`/properties/${propertyId}/indexing/urls?page_size=50`)
+      .set(auth())
+      .expect(200);
+    expect(fifty.body.page_size).toBe(50);
+    expect(fifty.body.items).toHaveLength(Math.min(50, fifty.body.total));
+    for (const bad of ['100', '0', 'abc']) {
+      await http
+        .get(`/properties/${propertyId}/indexing/urls?page_size=${bad}`)
+        .set(auth())
+        .expect(400);
+    }
     expect(
       summary.by_coverage.find(
         (c: { coverage_state: string }) =>
