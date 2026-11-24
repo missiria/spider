@@ -100,7 +100,8 @@ test.describe("Spider smoke", () => {
     await login(page);
     await page.goto("/properties");
     await page.getByRole("link", { name: "iptv-shark.com" }).first().click();
-    await page.getByRole("button", { name: "28d" }).click();
+    // 90d: the widest preset, so the GSC_MOCK fixture rows stay in range as the run date moves
+    await page.getByRole("button", { name: "90d" }).click();
     const nav = page.getByRole("navigation", { name: "Top pages pagination" });
     await expect(nav).toBeVisible();
     const card = nav.locator("xpath=..");

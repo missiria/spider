@@ -48,7 +48,7 @@ export function TablePagination({
       className={`flex flex-wrap items-center justify-end gap-x-6 gap-y-2 border-t border-border px-4 py-2 text-sm text-muted ${className}`}
     >
       <label className="flex items-center gap-2">
-        <span>Rows per page</span>
+        <span className="whitespace-nowrap">Rows per page</span>
         <select
           aria-label="Rows per page"
           value={pageSize}
