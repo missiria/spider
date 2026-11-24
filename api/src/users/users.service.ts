@@ -53,7 +53,11 @@ export class UsersService {
 
   async updateProfile(
     id: number,
-    input: { name?: string; email?: string },
+    input: {
+      name?: string;
+      email?: string;
+      weekly_opportunities_email?: boolean;
+    },
   ): Promise<User> {
     const user = await this.findById(id);
     if (!user) {
@@ -72,6 +76,9 @@ export class UsersService {
     if (input.name !== undefined) {
       user.name = input.name.trim();
     }
+    if (input.weekly_opportunities_email !== undefined) {
+      user.weekly_opportunities_email = input.weekly_opportunities_email;
+    }
     return this.repo.save(user);
   }
 
@@ -82,6 +89,14 @@ export class UsersService {
       name: user.name,
       role: user.role,
       created_at: user.created_at,
+    };
+  }
+
+  /** The signed-in user's own view (GET/PATCH /auth/me): public fields + own preferences. */
+  toMe(user: User) {
+    return {
+      ...this.toPublic(user),
+      weekly_opportunities_email: user.weekly_opportunities_email !== false,
     };
   }
 

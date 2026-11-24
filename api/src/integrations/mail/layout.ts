@@ -1,3 +1,4 @@
+import { digestSample } from '../../opportunities/digest';
 import { EmailBrand } from './email-brand.entity';
 import { socialFooterHtml, socialFooterText } from './social-footer';
 
@@ -140,4 +141,6 @@ export const EMAIL_SAMPLES = {
     subject: 'Your performance report',
     text: 'Period: Last 28 days\nClicks: 12,480\nImpressions: 204,300\n\nYour PDF and CSV reports are attached.\n\nhttps://example.com/reports',
   },
+  // MISS-0196: rendered by the digest's own renderer so the preview never drifts
+  digest: digestSample(SAMPLE_LINK_ORIGIN),
 } as const;

@@ -9,6 +9,7 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  IsBoolean,
   IsEmail,
   IsOptional,
   IsString,
@@ -102,6 +103,11 @@ class UpdateMeDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  /** Monday digest of new opportunities (MISS-0196) */
+  @IsOptional()
+  @IsBoolean()
+  weekly_opportunities_email?: boolean;
 }
 
 @Controller('auth')
@@ -173,13 +179,13 @@ export class AuthController {
   @Get('me')
   async me(@Req() req: { user: AuthUser }) {
     const user = await this.users.findById(req.user.userId);
-    return user ? this.users.toPublic(user) : req.user;
+    return user ? this.users.toMe(user) : req.user;
   }
 
   @Patch('me')
   async updateMe(@Req() req: { user: AuthUser }, @Body() body: UpdateMeDto) {
     const user = await this.users.updateProfile(req.user.userId, body);
-    return this.users.toPublic(user);
+    return this.users.toMe(user);
   }
 
   /** "Sign out everywhere": every token issued so far for this account stops working. */

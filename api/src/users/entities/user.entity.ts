@@ -45,6 +45,10 @@ export class User {
   @Column({ type: 'varchar', length: 120, nullable: true })
   company: string | null;
 
+  /** Monday digest of new opportunities (MISS-0196), sent to workspace admins; opt-out */
+  @Column({ type: 'boolean', default: true })
+  weekly_opportunities_email: boolean;
+
   /** bumped to revoke every session issued before (JWT carries it as `ver`) */
   @Column({ type: 'int', unsigned: true, default: 0 })
   token_version: number;
