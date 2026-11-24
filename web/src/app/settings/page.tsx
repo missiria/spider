@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingDigest, setSavingDigest] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,6 +55,31 @@ export default function SettingsPage() {
       toast.error(errorMessage(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // saved on toggle, independently of the name/email form (MISS-0196)
+  const toggleDigest = async (enabled: boolean) => {
+    setSavingDigest(true);
+    try {
+      const updated = await updateMe({ weekly_opportunities_email: enabled });
+      setMe((prev) =>
+        prev
+          ? {
+              ...prev,
+              weekly_opportunities_email: updated.weekly_opportunities_email,
+            }
+          : updated,
+      );
+      toast.success(
+        enabled
+          ? "Weekly opportunities email on"
+          : "Weekly opportunities email off",
+      );
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSavingDigest(false);
     }
   };
 
@@ -114,6 +140,28 @@ export default function SettingsPage() {
                     only.
                   </span>
                 </div>
+              </div>
+              <div id="email-preferences" className="text-sm md:col-span-2">
+                <span className="text-muted">Email preferences</span>
+                <label className="mt-1 flex items-start gap-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={me.weekly_opportunities_email !== false}
+                    disabled={savingDigest}
+                    onChange={(e) => toggleDigest(e.target.checked)}
+                    className="mt-0.5 accent-primary"
+                  />
+                  <span>
+                    <span className="block">Weekly opportunities email</span>
+                    <span className="block text-xs text-muted">
+                      Mondays at 08:00 (Paris): the opportunities found in the
+                      past 7 days. Sent to workspace admins
+                      {me.role === "admin"
+                        ? "."
+                        : "; you will receive it once you are an admin."}
+                    </span>
+                  </span>
+                </label>
               </div>
               <div className="md:col-span-2">
                 <Button type="submit" disabled={!dirty || saving}>
