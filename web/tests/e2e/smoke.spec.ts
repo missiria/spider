@@ -94,6 +94,57 @@ test.describe("Spider smoke", () => {
     await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
   });
 
+  test("property page: Top pages paginate 10 / 50 like Search Console (MISS-0195)", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto("/properties");
+    await page.getByRole("link", { name: "iptv-shark.com" }).first().click();
+    await page.getByRole("button", { name: "28d" }).click();
+    const nav = page.getByRole("navigation", { name: "Top pages pagination" });
+    await expect(nav).toBeVisible();
+    const card = nav.locator("xpath=..");
+    const rows = card.locator("tbody tr");
+    const range = nav.locator("[aria-live='polite']");
+    // 10 rows by default, "1–10 of N"
+    await expect(rows).toHaveCount(10);
+    await expect(range).toHaveText(/^1–10 of [\d,]+$/);
+    const total = Number(
+      ((await range.textContent()) ?? "").split(" of ")[1].replace(/,/g, ""),
+    );
+    expect(total).toBeGreaterThan(10);
+    await expect(
+      nav.getByRole("button", { name: "Previous page" }),
+    ).toBeDisabled();
+    // next page keeps the sort, shows rows 11–20
+    const firstRow = await rows.first().textContent();
+    await nav.getByRole("button", { name: "Next page" }).click();
+    await expect(range).toHaveText(
+      new RegExp(`^11–${Math.min(20, total)} of `),
+    );
+    await expect(rows.first()).not.toHaveText(firstRow ?? "");
+    // 50 rows per page → back to page 1
+    await nav
+      .getByRole("combobox", { name: "Rows per page" })
+      .selectOption("50");
+    await expect(range).toHaveText(new RegExp(`^1–${Math.min(50, total)} of `));
+    await expect(rows).toHaveCount(Math.min(50, total));
+    if (total > 50) {
+      await nav.getByRole("button", { name: "Next page" }).click();
+      await expect(range).toHaveText(new RegExp(`^51–`));
+    }
+    // a filter brings the table back to page 1
+    await card.getByLabel("Filter pages").fill("iptv");
+    await expect(rows.first()).toContainText("iptv");
+    // every key contains the host, so the list keeps its size: only the page changes
+    await expect(range).toHaveText(/^1–/);
+    // Copy still covers every filtered row, not only the page
+    await card.getByRole("button", { name: "Export" }).click();
+    await expect(
+      card.getByRole("button", { name: /^Copy \d+ filtered rows?$/ }),
+    ).toBeVisible();
+  });
+
   test("opportunities inbox lists findings and records a note", async ({
     page,
   }) => {

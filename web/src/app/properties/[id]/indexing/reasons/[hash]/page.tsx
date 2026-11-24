@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { TablePagination } from "@/components/TablePagination";
 import {
   Banner,
   Crumbs,
@@ -18,6 +19,7 @@ import {
 import { Card, ErrorBox, KpiCard, Spinner } from "@/components/ui";
 import { errorMessage, getIndexingReason } from "@/lib/api";
 import { formatInt } from "@/lib/format";
+import { DEFAULT_PAGE_SIZE, paginate, type PageSize } from "@/lib/pagination";
 import {
   EXAMPLES_CAP,
   GROUP_LABELS,
@@ -29,8 +31,6 @@ import {
 } from "@/lib/indexing";
 import type { IndexingReasonDetail, IndexingScopeRef } from "@/lib/types";
 
-const PAGE = 100;
-
 export default function IndexingReasonPage() {
   const params = useParams<{ id: string; hash: string }>();
   const id = Number(params.id);
@@ -38,7 +38,9 @@ export default function IndexingReasonPage() {
   const [data, setData] = useState<IndexingReasonDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [shown, setShown] = useState(PAGE);
+  // GSC-style paging of the example URLs (MISS-0195)
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
   useEffect(() => {
     setScope(scopeFromSearch(window.location.search));
@@ -57,6 +59,8 @@ export default function IndexingReasonPage() {
       (e) => !term || e.url.toLowerCase().includes(term),
     );
   }, [data, search]);
+
+  const paged = paginate(examples, page, pageSize);
 
   const q = scope ? scopeQuery(scope) : "";
   const latest = data?.history[data.history.length - 1] ?? null;
@@ -279,7 +283,7 @@ export default function IndexingReasonPage() {
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
-                    setShown(PAGE);
+                    setPage(1);
                   }}
                   placeholder="Filter URLs"
                   aria-label="Filter example URLs"
@@ -330,7 +334,7 @@ export default function IndexingReasonPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {examples.slice(0, shown).map((e) => (
+                    {paged.rows.map((e) => (
                       <tr
                         key={e.url}
                         className="border-b border-border/60 last:border-0"
@@ -365,18 +369,17 @@ export default function IndexingReasonPage() {
                     ))}
                   </tbody>
                 </table>
-                {examples.length > shown && (
-                  <div className="border-t border-border px-4 py-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setShown((n) => n + PAGE)}
-                      className="text-sm text-primary hover:underline"
-                    >
-                      Show {Math.min(PAGE, examples.length - shown)} more (
-                      {formatInt(examples.length - shown)} hidden)
-                    </button>
-                  </div>
-                )}
+                <TablePagination
+                  total={examples.length}
+                  page={paged.page}
+                  pageSize={pageSize}
+                  onPage={setPage}
+                  onPageSize={(n) => {
+                    setPageSize(n);
+                    setPage(1);
+                  }}
+                  noun="Example URLs"
+                />
               </>
             )}
           </Card>

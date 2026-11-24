@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { ExternalLink, Search } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { TablePagination } from "@/components/TablePagination";
 import {
   Banner,
   Crumbs,
@@ -23,6 +24,7 @@ import {
   type IndexingUrlFilter,
 } from "@/lib/api";
 import { formatDate, formatInt } from "@/lib/format";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { isIndexedCoverage, pathOf } from "@/lib/indexing";
 import type { IndexingUrlList, PropertyIndexing } from "@/lib/types";
 
@@ -45,6 +47,7 @@ export default function IndexingUrlsPage() {
       verdict: p.get("verdict") ?? undefined,
       in_sitemap: p.get("in_sitemap") === "1" ? "1" : undefined,
       page: 1,
+      page_size: DEFAULT_PAGE_SIZE,
     });
     getPropertyIndexing(id)
       .then(setSummary)
@@ -79,7 +82,13 @@ export default function IndexingUrlsPage() {
   };
 
   const insp = summary?.inspection;
-  const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
+  // a page past the end (the list shrank since the last request) jumps to the last page
+  useEffect(() => {
+    if (data && data.items.length === 0 && data.total > 0 && data.page > 1) {
+      const last = Math.max(1, Math.ceil(data.total / data.page_size));
+      setFilter((f) => ({ ...f, page: last }));
+    }
+  }, [data]);
   const selectCls =
     "min-w-0 max-w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm outline-none focus:border-primary";
 
@@ -351,35 +360,20 @@ export default function IndexingUrlsPage() {
               </tbody>
             </table>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+          <TablePagination
+            total={data.total}
+            page={data.page}
+            pageSize={data.page_size}
+            onPage={(page) => setFilter((f) => ({ ...f, page }))}
+            onPageSize={(page_size) =>
+              setFilter((f) => ({ ...f, page_size, page: 1 }))
+            }
+            noun="Inspected URLs"
+          />
+          <div className="border-t border-border px-4 py-3">
             <SourceNote source="url_inspection_api">
               not-indexed URLs first, then by impressions
             </SourceNote>
-            {pages > 1 && (
-              <div className="flex items-center gap-2 text-sm">
-                <Button
-                  variant="secondary"
-                  disabled={data.page <= 1}
-                  onClick={() =>
-                    setFilter((f) => ({ ...f, page: data.page - 1 }))
-                  }
-                >
-                  Previous
-                </Button>
-                <span className="tabular text-muted">
-                  Page {data.page} of {pages}
-                </span>
-                <Button
-                  variant="secondary"
-                  disabled={data.page >= pages}
-                  onClick={() =>
-                    setFilter((f) => ({ ...f, page: data.page + 1 }))
-                  }
-                >
-                  Next
-                </Button>
-              </div>
-            )}
           </div>
         </Card>
       )}
