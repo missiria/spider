@@ -41,6 +41,7 @@ import { parseCoverage, unreliableDimensions } from '../sync/coverage';
 import { mergeRules, RuleConfig } from './rules.config';
 import { IndexingService } from '../indexing/indexing.service';
 import { evaluateIndexing } from './indexing.rules';
+import { DoneNotificationService } from './done-notification.service';
 import {
   evaluate,
   Finding,
@@ -88,6 +89,7 @@ export class OpportunitiesService {
     private readonly workspaces: WorkspacesService,
     private readonly gsc: GscService,
     private readonly indexing: IndexingService,
+    private readonly doneNotifications: DoneNotificationService,
   ) {}
 
   // ---- rules -----------------------------------------------------------
@@ -529,6 +531,7 @@ export class OpportunitiesService {
 
   async update(id: number, userId: number, input: UpdateInput) {
     const opp = await this.find(id);
+    let becameDone = false;
     if (input.status !== undefined && input.status !== opp.status) {
       if (!OPPORTUNITY_STATUSES.includes(input.status))
         throw new BadRequestException('Invalid status');
@@ -536,6 +539,7 @@ export class OpportunitiesService {
         from: opp.status,
         to: input.status,
       });
+      becameDone = input.status === 'done';
       opp.status = input.status;
       opp.completed_at =
         input.status === 'done'
@@ -587,6 +591,14 @@ export class OpportunitiesService {
       });
     }
     await this.repo.save(opp);
+    // MISS-0198: tell the whole workspace, only on the transition into "done"
+    if (becameDone) {
+      const full = await this.repo.findOne({
+        where: { id, workspace_id: opp.workspace_id },
+        relations: { property: true },
+      });
+      this.doneNotifications.dispatch(full ?? opp, userId, input.note);
+    }
     return this.get(id);
   }
 

@@ -6,6 +6,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 import { DailyMetric } from '../metrics/entities/daily-metric.entity';
 import { DimensionMetric } from '../metrics/entities/dimension-metric.entity';
 import { PropertiesModule } from '../properties/properties.module';
+import { User } from '../users/entities/user.entity';
 import { WorkspaceMember } from '../workspaces/entities/workspace-member.entity';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { OpportunityDigestDelivery } from './entities/opportunity-digest-delivery.entity';
@@ -16,6 +17,7 @@ import { OpportunitiesController } from './opportunities.controller';
 import { OpportunitiesScheduler } from './opportunities.scheduler';
 import { OpportunitiesService } from './opportunities.service';
 import { OpportunityDigestService } from './opportunity-digest.service';
+import { DoneNotificationService } from './done-notification.service';
 
 @Module({
   imports: [
@@ -27,6 +29,7 @@ import { OpportunityDigestService } from './opportunity-digest.service';
       DimensionMetric,
       OpportunityDigestDelivery,
       WorkspaceMember,
+      User,
     ]),
     PropertiesModule,
     WorkspacesModule,
@@ -38,6 +41,7 @@ import { OpportunityDigestService } from './opportunity-digest.service';
     OpportunitiesService,
     OpportunitiesScheduler,
     OpportunityDigestService,
+    DoneNotificationService,
   ],
   controllers: [OpportunitiesController],
   exports: [OpportunitiesService, OpportunityDigestService],
