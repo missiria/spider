@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Logger,
   Patch,
@@ -17,6 +18,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { SessionsService } from '../users/sessions.service';
 import { UsersService } from '../users/users.service';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -118,6 +120,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly users: UsersService,
     private readonly signup: SignupService,
+    private readonly sessions: SessionsService,
   ) {}
 
   /** Always the same answer: whether the email already exists is not disclosed. */
@@ -165,9 +168,18 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   @HttpCode(200)
-  async login(@Body() body: LoginDto, @ClientIp() ip: string) {
+  async login(
+    @Body() body: LoginDto,
+    @ClientIp() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ) {
     try {
-      const res = await this.auth.login(body.email, body.password, ip);
+      const res = await this.auth.login(
+        body.email,
+        body.password,
+        ip,
+        userAgent,
+      );
       this.logger.log(`login ok user=${res.user.id} ip=${ip}`);
       return res;
     } catch (err) {
@@ -186,6 +198,19 @@ export class AuthController {
   async updateMe(@Req() req: { user: AuthUser }, @Body() body: UpdateMeDto) {
     const user = await this.users.updateProfile(req.user.userId, body);
     return this.users.toMe(user);
+  }
+
+  /**
+   * Sign-out of this browser (MISS-0199): the web app's DELETE /auth/session calls this with
+   * the cookie token before clearing the cookie, so the token is dead server-side too and
+   * the member shows offline at once. Other devices keep their own sessions.
+   */
+  @Post('logout')
+  @HttpCode(204)
+  async logout(@Req() req: { user: AuthUser }) {
+    if (req.user.sessionId) {
+      await this.sessions.end(req.user.sessionId, req.user.userId);
+    }
   }
 
   /** "Sign out everywhere": every token issued so far for this account stops working. */

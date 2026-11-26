@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Request } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { SessionsService } from '../users/sessions.service';
 import { UsersService } from '../users/users.service';
 import { requestContext } from '../workspaces/request-context';
 import { WorkspacesService } from '../workspaces/workspaces.service';
@@ -17,6 +18,8 @@ export interface JwtPayload {
   role: string;
   /** users.token_version at issue time; a bump revokes the token (ADR-0007) */
   ver: number;
+  /** user_sessions.id (MISS-0199); absent on tokens issued before sessions existed */
+  jti?: string;
 }
 
 export interface AuthUser {
@@ -24,6 +27,8 @@ export interface AuthUser {
   email: string;
   role: string;
   workspaceId: number;
+  /** the sign-in this request belongs to, when the token carries one */
+  sessionId?: string;
 }
 
 export const SESSION_COOKIE = 'spider_session';
@@ -56,6 +61,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     configService: ConfigService,
     private readonly users: UsersService,
     private readonly workspaces: WorkspacesService,
+    private readonly sessions: SessionsService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
@@ -76,6 +82,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if ((payload.ver ?? 0) !== user.token_version) {
       throw new UnauthorizedException('Session was revoked, sign in again');
     }
+    // signed out from this browser: the token is dead even though it has not expired
+    if (
+      payload.jti &&
+      (await this.sessions.touch(payload.jti, user.id)) === 'ended'
+    ) {
+      throw new UnauthorizedException('Session ended, sign in again');
+    }
     const workspaceId = await this.workspaces.workspaceIdFor(user.id);
     if (workspaceId === null) {
       throw new ForbiddenException('No workspace for this account');
@@ -85,6 +98,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       role: user.role,
       workspaceId,
+      ...(payload.jti ? { sessionId: payload.jti } : {}),
     };
     const store = requestContext.getStore();
     if (store) store.user = authUser;

@@ -20,6 +20,7 @@ import {
   revokeUserSessions,
   type SyncHealth,
 } from "@/lib/api";
+import { PresenceBadge } from "@/components/PresenceBadge";
 import { formatDateTime } from "@/lib/format";
 import type { User } from "@/lib/types";
 
@@ -38,6 +39,9 @@ export default function SystemPage() {
     password: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** when the panel last loaded successfully; shown so old data is never taken for current */
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [timeoutMin, setTimeoutMin] = useState(5);
 
   const load = useCallback(async () => {
     try {
@@ -48,7 +52,10 @@ export default function SystemPage() {
       ]);
       setHealth(h);
       setUsers(u.items);
+      if (u.presence_timeout_ms)
+        setTimeoutMin(Math.round(u.presence_timeout_ms / 60_000));
       setMe(m);
+      setUpdatedAt(new Date());
       setError(null);
     } catch (err) {
       setError(errorMessage(err));
@@ -58,7 +65,15 @@ export default function SystemPage() {
   useEffect(() => {
     void load();
     const t = setInterval(() => void load(), 30_000);
-    return () => clearInterval(t);
+    // back to the tab: refresh now instead of showing up to 30 s old presence
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load]);
 
   const submitInvite = async (e: React.FormEvent) => {
@@ -97,6 +112,7 @@ export default function SystemPage() {
     try {
       await revokeUserSessions(u.id);
       toast.success("Sessions revoked");
+      await load();
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -109,10 +125,11 @@ export default function SystemPage() {
       return;
     await revokeMySessions().catch(() => undefined);
     await endSession();
-    window.location.href = "/login";
+    window.location.replace("/login");
   };
 
   const isAdmin = me?.role === "admin";
+  const stale = Boolean(error && updatedAt);
 
   return (
     <AppShell>
@@ -328,8 +345,25 @@ export default function SystemPage() {
                 </button>
               </div>
             )}
-            <h3 className="mt-5 text-sm font-medium">Users</h3>
-            <ul className="mt-2 divide-y divide-border text-sm">
+            <div className="mt-5 flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-medium">Users</h3>
+              {updatedAt && (
+                <span
+                  className={`text-xs ${stale ? "text-warning" : "text-muted"}`}
+                  data-testid="users-updated"
+                >
+                  {stale ? "Out of date — last updated " : "Updated "}
+                  {updatedAt.toLocaleTimeString("en-GB")}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              Online = active in the last {timeoutMin} min. Signing out shows
+              the member offline at once; they stay in the list.
+            </p>
+            <ul
+              className={`mt-2 divide-y divide-border text-sm ${stale ? "opacity-60" : ""}`}
+            >
               {users.map((u) => (
                 <li
                   key={u.id}
@@ -343,6 +377,10 @@ export default function SystemPage() {
                     <div className="text-xs text-muted">
                       {u.email} · since {formatDateTime(u.created_at)}
                     </div>
+                    <PresenceBadge
+                      presence={u.presence}
+                      showSessions={isAdmin}
+                    />
                   </div>
                   {isAdmin && me?.id !== u.id && (
                     <div className="flex gap-2">

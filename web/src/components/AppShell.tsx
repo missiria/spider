@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity,
@@ -15,7 +15,8 @@ import {
   PanelLeftOpen,
   Settings,
 } from "lucide-react";
-import { endSession } from "@/lib/api";
+import { endSession, getMe } from "@/lib/api";
+import { onSignOutElsewhere, startHeartbeat } from "@/lib/authSync";
 import { SpiderLogo } from "@/components/SpiderLogo";
 
 const NAV = [
@@ -40,11 +41,25 @@ function readCollapsed(): boolean {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     setCollapsed(readCollapsed());
+  }, []);
+
+  // MISS-0199: leave at once when another tab signs out; heartbeat keeps presence fresh and
+  // re-checks the session when the tab comes back (a 401 sends the tab to /login)
+  useEffect(() => {
+    const stopListening = onSignOutElsewhere(() =>
+      window.location.replace("/login"),
+    );
+    const stopHeartbeat = startHeartbeat(() => {
+      void getMe().catch(() => undefined);
+    });
+    return () => {
+      stopListening();
+      stopHeartbeat();
+    };
   }, []);
 
   const toggle = () => {
@@ -59,9 +74,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   };
 
+  // full navigation, not router.push: drops the client router cache so Back cannot
+  // bring the signed-in screens back with their old data (MISS-0199)
   const logout = async () => {
     await endSession();
-    router.push("/login");
+    window.location.replace("/login");
   };
 
   const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;

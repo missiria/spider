@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deltaTone, formatDelta, formatInt, formatPct, formatPosition } from "./format";
+import { deltaTone, formatAgo, formatDateTime, formatDelta, formatInt, formatPct, formatPosition } from "./format";
 
 describe("format", () => {
   it("formats the 2026-10-15 fleet deltas like the hand-made table", () => {
@@ -23,5 +23,20 @@ describe("format", () => {
     expect(deltaTone(-0.25, true)).toBe("up");
     expect(deltaTone(0.001)).toBe("flat");
     expect(deltaTone(null)).toBe("flat");
+  });
+});
+
+describe("formatAgo (MISS-0199)", () => {
+  const now = Date.parse("2026-11-26T12:00:00Z");
+  it("buckets recent times and falls back to the date after a day", () => {
+    expect(formatAgo(null, now)).toBe("—");
+    expect(formatAgo("2026-11-26T11:59:30Z", now)).toBe("just now");
+    expect(formatAgo("2026-11-26T11:48:00Z", now)).toBe("12 min ago");
+    expect(formatAgo("2026-11-26T09:00:00Z", now)).toBe("3 h ago");
+    expect(formatAgo("2026-11-24T12:00:00Z", now)).toBe(
+      formatDateTime("2026-11-24T12:00:00Z"),
+    );
+    // clock skew: a future timestamp reads as now, never negative
+    expect(formatAgo("2026-11-26T12:05:00Z", now)).toBe("just now");
   });
 });

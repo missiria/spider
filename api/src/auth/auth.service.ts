@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { SessionsService } from '../users/sessions.service';
 import { UsersService } from '../users/users.service';
 import { JwtPayload } from './jwt.strategy';
 
@@ -47,12 +48,14 @@ export class AuthService {
   constructor(
     private readonly users: UsersService,
     private readonly jwt: JwtService,
+    private readonly sessions: SessionsService,
   ) {}
 
   async login(
     email: string,
     password: string,
     clientIp = 'unknown',
+    userAgent?: string | null,
   ): Promise<AuthResponse> {
     const account = (email ?? '').trim().toLowerCase();
     const key = `${account}|${normalizeIp(clientIp)}`;
@@ -92,6 +95,8 @@ export class AuthService {
       email: user.email,
       role: user.role,
       ver: user.token_version,
+      // one row per sign-in: sign-out ends it, presence reads it (MISS-0199)
+      jti: await this.sessions.start(user, userAgent),
     };
     return {
       token: await this.jwt.signAsync(payload),

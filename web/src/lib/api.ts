@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import type { PageSize } from "./pagination";
+import { announceSignOut } from "./authSync";
 import { clearStoredFilters } from "./persistedFilter";
 import type {
   AuthResponse,
@@ -101,6 +102,8 @@ export async function endSession(): Promise<void> {
   // list filters are remembered for the login session only (MISS-0189)
   clearStoredFilters();
   await fetch("/auth/session", { method: "DELETE" }).catch(() => undefined);
+  // other tabs leave the app now rather than at their next poll (MISS-0199)
+  announceSignOut();
 }
 
 export const AUTH_PAGES = [
@@ -293,7 +296,9 @@ export const putRules = (body: Partial<RuleConfig>) =>
   api.put<RuleConfig>("/opportunities/rules", body).then((r) => r.data);
 
 export const listUsers = () =>
-  api.get<{ items: User[] }>("/users").then((r) => r.data);
+  api
+    .get<{ items: User[]; presence_timeout_ms?: number }>("/users")
+    .then((r) => r.data);
 
 export const inviteUser = (body: {
   email: string;

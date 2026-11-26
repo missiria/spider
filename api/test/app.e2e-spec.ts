@@ -1479,6 +1479,91 @@ describe('Spider API (e2e)', () => {
     await http.get('/properties').set(as(t3)).expect(401);
   });
 
+  it('sign-out ends that token only; the members list shows presence (MISS-0199)', async () => {
+    const inv = await http
+      .post('/users')
+      .set(auth())
+      .send({ email: 'presence@example.com', name: 'Presence' })
+      .expect(201);
+    const memberId = inv.body.user.id as number;
+    const login = () =>
+      http
+        .post('/auth/login')
+        .set('User-Agent', 'e2e-browser')
+        .send({
+          email: 'presence@example.com',
+          password: inv.body.temporary_password,
+        })
+        .expect(200)
+        .then((r) => r.body.token as string);
+    const as = (t: string) => ({ Authorization: `Bearer ${t}` });
+    const presenceOf = async () => {
+      const r = await http.get('/users').set(auth()).expect(200);
+      expect(r.body.presence_timeout_ms).toBe(5 * 60_000);
+      return r.body.items.find((u: { id: number }) => u.id === memberId)
+        .presence as {
+        online: boolean;
+        last_seen_at: string | null;
+        sessions: number;
+      };
+    };
+
+    // never signed in: listed, offline, no last seen
+    expect(await presenceOf()).toEqual({
+      online: false,
+      last_seen_at: null,
+      sessions: 0,
+    });
+
+    // two devices
+    const laptop = await login();
+    const phone = await login();
+    await http.get('/auth/me').set(as(laptop)).expect(200);
+    expect(await presenceOf()).toMatchObject({ online: true, sessions: 2 });
+    const ds = app.get(DataSource);
+    const [row] = await ds.query(
+      `SELECT user_agent FROM user_sessions WHERE user_id = ? LIMIT 1`,
+      [memberId],
+    );
+    expect(row.user_agent).toBe('e2e-browser');
+
+    // signing out the laptop kills that token (bearer and cookie), the phone stays signed in
+    await http.post('/auth/logout').set(as(laptop)).expect(204);
+    await http.get('/auth/me').set(as(laptop)).expect(401);
+    await http
+      .get('/auth/me')
+      .set('Cookie', `spider_session=${laptop}`)
+      .expect(401);
+    await http.get('/auth/me').set(as(phone)).expect(200);
+    expect(await presenceOf()).toMatchObject({ online: true, sessions: 1 });
+
+    // last device signs out → offline at once, still a member, last seen kept
+    await http.post('/auth/logout').set(as(phone)).expect(204);
+    const after = await presenceOf();
+    expect(after.online).toBe(false);
+    expect(after.last_seen_at).not.toBeNull();
+
+    // idle past the timeout → offline without signing out
+    const idle = await login();
+    expect((await presenceOf()).online).toBe(true);
+    await ds.query(
+      `UPDATE user_sessions SET last_seen_at = NOW() - INTERVAL 6 MINUTE WHERE user_id = ?`,
+      [memberId],
+    );
+    expect((await presenceOf()).online).toBe(false);
+    // …and comes back on the next request (touch rewrites last_seen_at)
+    await http.get('/auth/me').set(as(idle)).expect(200);
+    expect((await presenceOf()).online).toBe(true);
+
+    // admin "sign out everywhere" → offline on the very next list
+    await http
+      .post(`/users/${memberId}/revoke-sessions`)
+      .set(auth())
+      .expect(204);
+    expect((await presenceOf()).online).toBe(false);
+    await http.get('/auth/me').set(as(idle)).expect(401);
+  });
+
   it('tenancy: a second workspace cannot list, read, mutate, assign, delete or export the first one', async () => {
     const workspaces = app.get(WorkspacesService);
     const users = app.get(UsersService);

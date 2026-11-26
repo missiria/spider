@@ -38,9 +38,16 @@ const users = {
     bcrypt.compare(p, u.password_hash),
 };
 const jwt = { signAsync: async (p: object) => JSON.stringify(p) };
+const started: { userId: number; ua: string | null | undefined }[] = [];
+const sessions = {
+  start: async (u: { id: number }, ua?: string | null) => {
+    started.push({ userId: u.id, ua });
+    return `sess-${started.length}`;
+  },
+};
 
 function service() {
-  const svc = new AuthService(users as never, jwt as never);
+  const svc = new AuthService(users as never, jwt as never, sessions as never);
   const delays: number[] = [];
   (svc as unknown as { sleep: (ms: number) => Promise<void> }).sleep = async (
     ms,
@@ -93,6 +100,37 @@ describe('AuthService signup approval', () => {
       '1.1.1.1',
     );
     expect(ok.user.id).toBe(1);
+  });
+});
+
+describe('AuthService sessions (MISS-0199)', () => {
+  it('a successful sign-in starts one session and puts its id in the token as jti', async () => {
+    const { svc } = service();
+    started.length = 0;
+    const ok = await svc.login(
+      'known@example.com',
+      'right-password',
+      '9.9.9.9',
+      'Firefox',
+    );
+    expect(started).toEqual([{ userId: 1, ua: 'Firefox' }]);
+    expect(JSON.parse(ok.token)).toMatchObject({
+      sub: 1,
+      ver: 3,
+      jti: 'sess-1',
+    });
+  });
+
+  it('failed or refused sign-ins start no session', async () => {
+    const { svc } = service();
+    started.length = 0;
+    await expect(
+      svc.login('known@example.com', 'wrong', '9.9.9.8'),
+    ).rejects.toThrow('Invalid credentials');
+    await expect(
+      svc.login('pending@example.com', 'right-password', '9.9.9.8'),
+    ).rejects.toThrow(/awaiting approval/);
+    expect(started).toEqual([]);
   });
 });
 

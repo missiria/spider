@@ -19,6 +19,7 @@ import {
 } from 'class-validator';
 import { AuthUser } from '../auth/jwt.strategy';
 import { Roles } from '../auth/roles.guard';
+import { PRESENCE_TIMEOUT_MS, SessionsService } from './sessions.service';
 import { UsersService } from './users.service';
 
 class InviteUserDto {
@@ -37,13 +38,26 @@ class InviteUserDto {
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly sessions: SessionsService,
+  ) {}
 
-  /** Assignee picker: every active user, public shape only. */
+  /**
+   * Assignee picker + System page: every active user, public shape only, with presence
+   * (online / last seen, MISS-0199) for the members panel.
+   */
   @Get()
   async list() {
     const items = await this.users.listActive();
-    return { items: items.map((u) => this.users.toPublic(u)) };
+    const presence = await this.sessions.presenceFor(items);
+    return {
+      items: items.map((u) => ({
+        ...this.users.toPublic(u),
+        presence: presence.get(u.id),
+      })),
+      presence_timeout_ms: PRESENCE_TIMEOUT_MS,
+    };
   }
 
   /**

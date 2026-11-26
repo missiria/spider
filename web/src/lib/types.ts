@@ -193,6 +193,17 @@ export interface User {
   /** only on GET/PATCH /auth/me: Monday digest of new opportunities (MISS-0196) */
   weekly_opportunities_email?: boolean;
   created_at: string;
+  /** only on GET /users: online / last seen (MISS-0199) */
+  presence?: Presence;
+}
+
+export interface Presence {
+  /** at least one session active within the presence timeout */
+  online: boolean;
+  /** last authenticated request over all sessions; null = never signed in since tracking */
+  last_seen_at: string | null;
+  /** sessions currently counted as online */
+  sessions: number;
 }
 
 export type ViewScope = "fleet" | "property";

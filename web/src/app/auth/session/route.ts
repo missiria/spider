@@ -76,9 +76,23 @@ export async function POST(req: NextRequest) {
   return res;
 }
 
+/**
+ * Sign-out of this browser. The API is told first so the token stops working server-side
+ * and the member shows offline at once (MISS-0199); the cookie is cleared even when the
+ * API is unreachable or the token was already dead.
+ */
 export async function DELETE(req: NextRequest) {
   const blocked = rejectCrossSite(req);
   if (blocked) return blocked;
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  if (token) {
+    await fetch(`${API_URL}/auth/logout`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, ...clientIpHeaders(req) },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    }).catch(() => undefined);
+  }
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, "", { ...cookieOptions(req), maxAge: 0 });
   return res;
