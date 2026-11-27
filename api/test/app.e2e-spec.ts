@@ -340,6 +340,121 @@ describe('Spider API (e2e)', () => {
       .expect(200);
     const id = list.body.items[0].id;
     expect(list.body.items[0].title).not.toMatch(/penalt/i);
+
+    // MISS-0203: the scan returns what it created, tied to a scan id; repeat scans add nothing
+    type NewItem = { id: number; priority: string; rule: string };
+    expect(first.body.scan_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(first.body.new_items).toHaveLength(first.body.created);
+    expect(first.body.reopened).toBe(0);
+    expect(second.body.new_items).toEqual([]);
+    expect(second.body.scan_id).not.toBe(first.body.scan_id);
+    const byPriority = (first.body.new_items as NewItem[]).reduce<
+      Record<string, number>
+    >((acc, i) => ({ ...acc, [i.priority]: (acc[i.priority] ?? 0) + 1 }), {});
+    expect(Object.values(byPriority).reduce((a, b) => a + b, 0)).toBe(
+      first.body.created,
+    );
+    // keep the item tracked below out of the batch
+    const pool = (first.body.new_items as NewItem[]).filter((i) => i.id !== id);
+    expect(pool.length).toBeGreaterThanOrEqual(3);
+    const me = (await http.get('/auth/me').set(auth()).expect(200)).body.id;
+    const otherId = (
+      await http
+        .post('/users')
+        .set(auth())
+        .send({ email: 'scan-assignee@example.com', name: 'Scan Assignee' })
+        .expect(201)
+    ).body.user.id;
+    // another user takes pool[1] while the modal is open
+    await http
+      .patch(`/opportunities/${pool[1].id}`)
+      .set(auth())
+      .send({ assignee_id: otherId })
+      .expect(200);
+    // ids of another scan are refused, whatever the client sends
+    const wrongScan = await http
+      .post(`/opportunities/scan/${second.body.scan_id}/assign`)
+      .set(auth())
+      .send({ groups: [{ assignee_id: me, ids: [pool[0].id] }] })
+      .expect(200);
+    expect(wrongScan.body).toEqual({
+      assigned: [],
+      unchanged: [],
+      conflicts: [],
+      skipped: [{ id: pool[0].id, reason: 'not_in_scan' }],
+    });
+    const batch = {
+      groups: [{ assignee_id: me, ids: [pool[0].id, pool[1].id] }],
+    };
+    const assigned = await http
+      .post(`/opportunities/scan/${first.body.scan_id}/assign`)
+      .set(auth())
+      .send(batch)
+      .expect(200);
+    expect(assigned.body).toEqual({
+      assigned: [{ id: pool[0].id, assignee_id: me }],
+      unchanged: [],
+      conflicts: [{ id: pool[1].id, assignee_id: otherId }],
+      skipped: [],
+    });
+    // a retry changes nothing and keeps the other user's assignment
+    const retry = await http
+      .post(`/opportunities/scan/${first.body.scan_id}/assign`)
+      .set(auth())
+      .send(batch)
+      .expect(200);
+    expect(retry.body.assigned).toEqual([]);
+    expect(retry.body.unchanged).toEqual([{ id: pool[0].id, assignee_id: me }]);
+    expect(retry.body.conflicts).toEqual([
+      { id: pool[1].id, assignee_id: otherId },
+    ]);
+    const kept = await http
+      .get(`/opportunities/${pool[1].id}`)
+      .set(auth())
+      .expect(200);
+    expect(kept.body.assignee_id).toBe(otherId);
+    // an untouched group stays unassigned
+    const untouched = await http
+      .get(`/opportunities/${pool[2].id}`)
+      .set(auth())
+      .expect(200);
+    expect(untouched.body.assignee_id).toBeNull();
+    const audit = await http
+      .get(`/opportunities/${pool[0].id}`)
+      .set(auth())
+      .expect(200);
+    expect(audit.body.events.at(-1)).toMatchObject({
+      type: 'assignee',
+      payload: { from: null, to: me, scan_id: first.body.scan_id },
+    });
+    // invalid inputs: one id in two groups, a non-member, a malformed scan id
+    await http
+      .post(`/opportunities/scan/${first.body.scan_id}/assign`)
+      .set(auth())
+      .send({
+        groups: [
+          { assignee_id: me, ids: [pool[2].id] },
+          { assignee_id: otherId, ids: [pool[2].id] },
+        ],
+      })
+      .expect(400);
+    await http
+      .post(`/opportunities/scan/${first.body.scan_id}/assign`)
+      .set(auth())
+      .send({ groups: [{ assignee_id: 999999, ids: [pool[2].id] }] })
+      .expect(400);
+    await http
+      .post('/opportunities/scan/not-a-scan/assign')
+      .set(auth())
+      .send({ groups: [] })
+      .expect(400);
+    // clean up so the rest of the suite sees the pool unassigned again
+    for (const i of [pool[0], pool[1]])
+      await http
+        .patch(`/opportunities/${i.id}`)
+        .set(auth())
+        .send({ assignee_id: null })
+        .expect(200);
     // MISS-0197: without page_size the full list; with it one clamped page of 10, 50 or 250
     const all = list.body.items.map((o: { id: number }) => o.id);
     expect(list.body).toMatchObject({
@@ -438,6 +553,32 @@ describe('Spider API (e2e)', () => {
       .set(auth())
       .expect(200);
     expect(still.body.status).toBe('done');
+    // MISS-0203: the web app starts the scan in the background and polls it
+    const started = await http
+      .post('/opportunities/scan/start')
+      .set(auth())
+      .expect(202);
+    expect(started.body).toMatchObject({ status: 'running', result: null });
+    let job = started.body;
+    for (let i = 0; i < 100 && job.status === 'running'; i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+      job = (
+        await http
+          .get(`/opportunities/scan/${started.body.scan_id}`)
+          .set(auth())
+          .expect(200)
+      ).body;
+    }
+    expect(job.status).toBe('done');
+    expect(job.result).toMatchObject({
+      scan_id: started.body.scan_id,
+      created: 0,
+      new_items: [],
+    });
+    await http
+      .get('/opportunities/scan/00000000-0000-4000-8000-000000000000')
+      .set(auth())
+      .expect(404);
     const rules = await http
       .put('/opportunities/rules')
       .set(auth())

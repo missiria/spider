@@ -60,7 +60,7 @@ export function Button({
   variant = "primary",
   className = "",
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
+}: React.ComponentProps<"button"> & { variant?: "primary" | "secondary" | "danger" }) {
   const base = "inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
   const styles = {
     primary: "bg-primary text-white hover:bg-primary-hover",

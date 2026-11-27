@@ -5,20 +5,27 @@ import {
   HttpCode,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
   Query,
   Req,
 } from '@nestjs/common';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
+  Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { AuthUser } from '../auth/jwt.strategy';
 import { parseUrlPageSize } from '../indexing/url-page-size';
@@ -55,6 +62,27 @@ class UpdateOpportunityDto {
   @IsString()
   @MaxLength(4000)
   note?: string;
+}
+
+class ScanAssignmentGroupDto {
+  @IsInt()
+  @Min(1)
+  assignee_id: number;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
+  @IsInt({ each: true })
+  ids: number[];
+}
+
+/** MISS-0203: "Assign selected groups" of the post-scan modal; unselected groups are left out. */
+class ScanAssignmentDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ScanAssignmentGroupDto)
+  groups: ScanAssignmentGroupDto[];
 }
 
 const PROMPT_VARIANTS = ['explain', 'ticket', 'brief'] as const;
@@ -121,6 +149,33 @@ export class OpportunitiesController {
   @HttpCode(200)
   scan() {
     return this.opportunities.scan();
+  }
+
+  /** MISS-0203: start a manual scan in the background; poll GET scan/:scanId for the result. */
+  @Post('scan/start')
+  @HttpCode(202)
+  startScan() {
+    return this.opportunities.startScan();
+  }
+
+  @Get('scan/:scanId')
+  scanJob(@Param('scanId', new ParseUUIDPipe()) scanId: string) {
+    return this.opportunities.scanJob(scanId);
+  }
+
+  /** MISS-0203: assign the opportunities a scan created; never reruns the scan. */
+  @Post('scan/:scanId/assign')
+  @HttpCode(200)
+  assignScan(
+    @Param('scanId', new ParseUUIDPipe()) scanId: string,
+    @Req() req: { user: AuthUser },
+    @Body() body: ScanAssignmentDto,
+  ) {
+    return this.opportunities.assignScanResults(
+      scanId,
+      req.user.userId,
+      body.groups,
+    );
   }
 
   /** MISS-0196: this week's digest of the caller's workspace, rendered but never sent. */

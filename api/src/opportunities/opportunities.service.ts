@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import { In, Repository } from 'typeorm';
 import { GscService } from '../gsc/gsc.service';
 import { DailyMetric } from '../metrics/entities/daily-metric.entity';
@@ -69,10 +70,67 @@ export interface UpdateInput {
 
 const IMPACT_DAYS = 14;
 
+/** One opportunity this scan created (MISS-0203): the post-scan assignment modal groups these. */
+export interface ScanNewItem {
+  id: number;
+  property_id: number;
+  rule: Opportunity['rule'];
+  subject: Opportunity['subject'];
+  key_text: string;
+  priority: OpportunityPriority;
+  title: string;
+}
+
+export interface ScanResult {
+  /** ties the created opportunities to this run: the assignment endpoint only accepts these */
+  scan_id: string;
+  properties: number;
+  /** properties whose evaluation threw; the others were still scanned */
+  failed: number;
+  created: number;
+  /** existing findings seen again with fresh evidence (not reopened) */
+  updated: number;
+  /** done findings that came back after the regression window and were reopened */
+  reopened: number;
+  findings: number;
+  skipped: number;
+  new_items: ScanNewItem[];
+}
+
+/** A manual scan run in the background (MISS-0203): polled, so no proxy timeout cuts it. */
+export interface ScanJob {
+  scan_id: string;
+  workspace_id: number;
+  status: 'running' | 'done' | 'failed';
+  started_at: string;
+  finished_at: string | null;
+  result: ScanResult | null;
+  error: string | null;
+}
+
+/** finished jobs are kept this long for the poller, then dropped */
+const SCAN_JOB_TTL_MS = 60 * 60 * 1000;
+
+export interface ScanAssignmentGroup {
+  assignee_id: number;
+  ids: number[];
+}
+
+export interface ScanAssignmentResult {
+  assigned: { id: number; assignee_id: number }[];
+  /** already held by the requested member (a retry): nothing changed */
+  unchanged: { id: number; assignee_id: number }[];
+  /** someone else assigned it meanwhile: left as it is */
+  conflicts: { id: number; assignee_id: number }[];
+  /** not created by this scan, closed since, or gone */
+  skipped: { id: number; reason: 'not_in_scan' | 'closed' | 'not_found' }[];
+}
+
 @Injectable()
 export class OpportunitiesService {
   private readonly logger = new Logger(OpportunitiesService.name);
   private scanning = false;
+  private readonly jobs = new Map<string, ScanJob>();
 
   constructor(
     @InjectRepository(Opportunity)
@@ -119,24 +177,26 @@ export class OpportunitiesService {
     return this.scanning;
   }
 
-  /** Evaluate every connected property; returns counts. Safe to re-run: fingerprints dedupe. */
-  async scan(): Promise<{
-    properties: number;
-    created: number;
-    updated: number;
-    findings: number;
-    skipped: number;
-  }> {
+  /**
+   * Evaluate every connected property; returns counts. Safe to re-run: fingerprints dedupe.
+   * MISS-0203: the opportunities created by this run are returned with a scan id, so the
+   * post-scan modal can assign exactly those, never items an older or later scan found.
+   */
+  async scan(scanId: string = randomUUID()): Promise<ScanResult> {
     if (this.scanning) {
       throw new BadRequestException('A scan is already running');
     }
     this.scanning = true;
-    const result = {
+    const result: ScanResult = {
+      scan_id: scanId,
       properties: 0,
+      failed: 0,
       created: 0,
       updated: 0,
+      reopened: 0,
       findings: 0,
       skipped: 0,
+      new_items: [],
     };
     try {
       const ws = await this.workspaces.current();
@@ -148,12 +208,21 @@ export class OpportunitiesService {
         try {
           const findings = await this.evaluateProperty(property, cfg);
           result.findings += findings.length;
-          const r = await this.persist(ws.id, property, findings, cfg);
+          const r = await this.persist(
+            ws.id,
+            property,
+            findings,
+            cfg,
+            result.scan_id,
+          );
           result.created += r.created;
           result.updated += r.updated;
+          result.reopened += r.reopened;
           result.skipped += r.skipped;
+          result.new_items.push(...r.new_items);
           result.properties += 1;
         } catch (err) {
+          result.failed += 1;
           this.logger.warn(
             `scan ${property.site_url}: ${(err as Error).message}`,
           );
@@ -163,9 +232,161 @@ export class OpportunitiesService {
       this.scanning = false;
     }
     this.logger.log(
-      `scan: ${result.properties} properties, ${result.findings} findings, ${result.created} new, ${result.updated} refreshed`,
+      `scan ${result.scan_id}: ${result.properties} properties (${result.failed} failed), ${result.findings} findings, ${result.created} new, ${result.updated} refreshed, ${result.reopened} reopened`,
     );
     return result;
+  }
+
+  /**
+   * MISS-0203: start a manual scan in the background and return its id at once. A scan of
+   * a 20-property workspace takes 25-60 s, longer than the web proxy waits for one request.
+   */
+  async startScan(): Promise<ScanJob> {
+    const ws = await this.workspaces.current();
+    if (this.scanning) {
+      throw new BadRequestException('A scan is already running');
+    }
+    const now = Date.now();
+    for (const [id, j] of this.jobs) {
+      if (j.finished_at && now - Date.parse(j.finished_at) > SCAN_JOB_TTL_MS)
+        this.jobs.delete(id);
+    }
+    const job: ScanJob = {
+      scan_id: randomUUID(),
+      workspace_id: ws.id,
+      status: 'running',
+      started_at: new Date(now).toISOString(),
+      finished_at: null,
+      result: null,
+      error: null,
+    };
+    this.jobs.set(job.scan_id, job);
+    // scan() flips `scanning` synchronously, before its first await: no second start slips in
+    void this.workspaces
+      .runAs(ws.id, () => this.scan(job.scan_id))
+      .then((result) => {
+        job.status = 'done';
+        job.result = result;
+      })
+      .catch((err: Error) => {
+        job.status = 'failed';
+        job.error = err.message;
+        this.logger.warn(`scan ${job.scan_id} failed: ${err.message}`);
+      })
+      .finally(() => {
+        job.finished_at = new Date().toISOString();
+      });
+    return this.presentJob(job);
+  }
+
+  /** Poll one background scan of the caller's workspace; another workspace's id is a 404. */
+  async scanJob(scanId: string): Promise<ScanJob> {
+    const ws = await this.workspaces.current();
+    const job = this.jobs.get(scanId);
+    if (!job || job.workspace_id !== ws.id)
+      throw new NotFoundException(
+        'Scan not found (finished more than an hour ago, or the server restarted)',
+      );
+    return this.presentJob(job);
+  }
+
+  private presentJob(job: ScanJob): ScanJob {
+    return { ...job };
+  }
+
+  /**
+   * MISS-0203: assign the opportunities one scan created, group by group. Only items whose
+   * "created" event carries this scan id are touched; an item someone assigned meanwhile is
+   * reported as a conflict and kept (conditional update, never an overwrite). Re-sending the
+   * same request is safe: items already held by the requested member come back unchanged.
+   */
+  async assignScanResults(
+    scanId: string,
+    userId: number,
+    groups: ScanAssignmentGroup[],
+  ): Promise<ScanAssignmentResult> {
+    const ws = await this.workspaces.current();
+    const target = new Map<number, number>();
+    for (const g of groups) {
+      for (const id of g.ids) {
+        if (target.has(id) && target.get(id) !== g.assignee_id)
+          throw new BadRequestException(
+            `Opportunity ${id} is in more than one group`,
+          );
+        target.set(id, g.assignee_id);
+      }
+    }
+    for (const assignee of new Set(groups.map((g) => g.assignee_id))) {
+      if (!(await this.workspaces.isMember(ws.id, assignee)))
+        throw new BadRequestException(
+          'Assignee must be a member of this workspace',
+        );
+    }
+    const out: ScanAssignmentResult = {
+      assigned: [],
+      unchanged: [],
+      conflicts: [],
+      skipped: [],
+    };
+    const ids = [...target.keys()];
+    if (!ids.length) return out;
+
+    const inScan = new Set(
+      (
+        await this.events
+          .createQueryBuilder('e')
+          .select('e.opportunity_id', 'id')
+          .innerJoin('e.opportunity', 'o')
+          .where('o.workspace_id = :ws', { ws: ws.id })
+          .andWhere('e.opportunity_id IN (:...ids)', { ids })
+          .andWhere("e.type = 'created'")
+          .andWhere(
+            "JSON_UNQUOTE(JSON_EXTRACT(e.payload, '$.scan_id')) = :sid",
+            {
+              sid: scanId,
+            },
+          )
+          .getRawMany<{ id: number | string }>()
+      ).map((r) => Number(r.id)),
+    );
+
+    for (const [id, assignee] of target) {
+      if (!inScan.has(id)) {
+        out.skipped.push({ id, reason: 'not_in_scan' });
+        continue;
+      }
+      // compare-and-set: only an unassigned, still active item takes the assignee
+      const res = await this.repo
+        .createQueryBuilder()
+        .update(Opportunity)
+        .set({ assignee_id: assignee })
+        .where('id = :id AND workspace_id = :ws', { id, ws: ws.id })
+        .andWhere('assignee_id IS NULL')
+        .andWhere("status IN ('open','in_progress')")
+        .execute();
+      if (res.affected) {
+        await this.log(id, userId, 'assignee', {
+          from: null,
+          to: assignee,
+          scan_id: scanId,
+        });
+        out.assigned.push({ id, assignee_id: assignee });
+        continue;
+      }
+      const now = await this.repo.findOne({
+        where: { id, workspace_id: ws.id },
+      });
+      if (!now) out.skipped.push({ id, reason: 'not_found' });
+      else if (now.assignee_id === assignee)
+        out.unchanged.push({ id, assignee_id: assignee });
+      else if (now.assignee_id !== null)
+        out.conflicts.push({ id, assignee_id: now.assignee_id });
+      else out.skipped.push({ id, reason: 'closed' });
+    }
+    this.logger.log(
+      `scan ${scanId} assignment: ${out.assigned.length} assigned, ${out.unchanged.length} unchanged, ${out.conflicts.length} conflicts, ${out.skipped.length} skipped`,
+    );
+    return out;
   }
 
   private async evaluateProperty(
@@ -251,14 +472,21 @@ export class OpportunitiesService {
     findings: number;
     created: number;
     updated: number;
+    reopened: number;
     skipped: number;
   }> {
     const ws = await this.workspaces.current();
     const property = await this.properties.get(propertyId);
     const cfg = await this.getRules();
     const findings = await this.evaluateProperty(property, cfg);
-    const r = await this.persist(ws.id, property, findings, cfg);
-    return { findings: findings.length, ...r };
+    const r = await this.persist(ws.id, property, findings, cfg, null);
+    return {
+      findings: findings.length,
+      created: r.created,
+      updated: r.updated,
+      reopened: r.reopened,
+      skipped: r.skipped,
+    };
   }
 
   private async keyTotals(
@@ -298,9 +526,16 @@ export class OpportunitiesService {
     property: Property,
     findings: Finding[],
     cfg: RuleConfig,
+    scanId: string | null,
   ) {
     const now = new Date();
-    const counts = { created: 0, updated: 0, skipped: 0 };
+    const counts = {
+      created: 0,
+      updated: 0,
+      reopened: 0,
+      skipped: 0,
+      new_items: [] as ScanNewItem[],
+    };
     const fps = findings.map((f) => fingerprint(property.id, f));
     const existing = fps.length
       ? await this.repo.find({
@@ -313,6 +548,7 @@ export class OpportunitiesService {
       const f = findings[i];
       const fp = fps[i];
       const current = byFp.get(fp);
+      let reopened = false;
       if (!current) {
         const opp = await this.repo.save(
           this.repo.create({
@@ -337,8 +573,18 @@ export class OpportunitiesService {
         await this.log(opp.id, null, 'created', {
           score: f.score,
           title: f.title,
+          ...(scanId ? { scan_id: scanId } : {}),
         });
         counts.created += 1;
+        counts.new_items.push({
+          id: opp.id,
+          property_id: opp.property_id,
+          rule: opp.rule,
+          subject: opp.subject,
+          key_text: opp.key_text,
+          priority: opp.priority,
+          title: opp.title,
+        });
         continue;
       }
       if (current.status === 'dismissed') {
@@ -363,6 +609,7 @@ export class OpportunitiesService {
           to: 'open',
           reason: `finding returned ${Math.round(since)} days after completion`,
         });
+        reopened = true;
       }
       current.last_seen_at = now;
       current.score = f.score;
@@ -376,7 +623,9 @@ export class OpportunitiesService {
         score: f.score,
         title: f.title,
       });
-      counts.updated += 1;
+      // MISS-0203: reopened items are reported apart, never mixed with the new ones
+      if (reopened) counts.reopened += 1;
+      else counts.updated += 1;
     }
     return counts;
   }

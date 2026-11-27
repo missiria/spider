@@ -301,6 +301,48 @@ export interface OpportunityDetail extends Opportunity {
   impact: OpportunityImpact | null;
 }
 
+/** One opportunity a manual scan created (MISS-0203). */
+export interface ScanNewItem {
+  id: number;
+  property_id: number;
+  rule: OpportunityRule;
+  subject: OpportunitySubject;
+  key_text: string;
+  priority: OpportunityPriority;
+  title: string;
+}
+
+/** POST /opportunities/scan */
+export interface ScanResult {
+  scan_id: string;
+  properties: number;
+  failed: number;
+  created: number;
+  updated: number;
+  reopened: number;
+  findings: number;
+  skipped: number;
+  new_items: ScanNewItem[];
+}
+
+/** POST /opportunities/scan/start, GET /opportunities/scan/:scanId */
+export interface ScanJob {
+  scan_id: string;
+  status: "running" | "done" | "failed";
+  started_at: string;
+  finished_at: string | null;
+  result: ScanResult | null;
+  error: string | null;
+}
+
+/** POST /opportunities/scan/:scanId/assign */
+export interface ScanAssignmentResult {
+  assigned: { id: number; assignee_id: number }[];
+  unchanged: { id: number; assignee_id: number }[];
+  conflicts: { id: number; assignee_id: number }[];
+  skipped: { id: number; reason: "not_in_scan" | "closed" | "not_found" }[];
+}
+
 export interface OpportunityList {
   items: Opportunity[];
   counts: Record<OpportunityStatus, number>;

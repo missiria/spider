@@ -1,18 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { RefreshCw, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ScanResultsDialog } from "@/components/ScanResultsDialog";
 import { TablePagination } from "@/components/TablePagination";
 import { Button, Card, EmptyState, ErrorBox, Spinner } from "@/components/ui";
-import { errorMessage, getProperties, listOpportunities, listUsers, scanOpportunities, updateOpportunity, type OpportunityFilter } from "@/lib/api";
+import { errorMessage, getProperties, listOpportunities, listUsers, runScan, updateOpportunity, type OpportunityFilter } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { confidenceLabel, DEFAULT_OPPORTUNITY_FILTER, DEFAULT_OPPORTUNITY_PAGING, isOverdue, PRIORITY_LABELS, priorityTone, RULE_LABELS, sanitizeOpportunityFilter, sanitizeOpportunityPaging, STATUS_LABELS, STATUS_TABS, statusTone, SUBJECT_LABELS, subjectLabel } from "@/lib/opportunities";
 import { sameFilter } from "@/lib/persistedFilter";
+import { assignmentSummary, noNewSummary, plural } from "@/lib/scanResults";
 import { usePersistedFilter } from "@/lib/usePersistedFilter";
-import type { Opportunity, OpportunityList, OpportunityPriority, OpportunityStatus, PropertyRow, User } from "@/lib/types";
+import type { Opportunity, OpportunityList, OpportunityPriority, OpportunityStatus, PropertyRow, ScanAssignmentResult, ScanResult, User } from "@/lib/types";
 
 const FILTER_NAME = "opportunities";
 const PAGING_NAME = "opportunities:paging";
@@ -44,6 +46,10 @@ export default function OpportunitiesPage() {
   const [userIds, setUserIds] = useState<number[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | "scan" | null>(null);
+  // MISS-0203: the last manual scan that created items, shown in the assignment modal
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const scanning = useRef(false);
+  const scanButton = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -90,15 +96,33 @@ export default function OpportunitiesPage() {
   const userName = useMemo(() => new Map(users.map((u) => [u.id, u.name])), [users]);
 
   const scan = async () => {
+    // a second click before the re-render must not start a second scan
+    if (scanning.current) return;
+    scanning.current = true;
     setBusy("scan");
     try {
-      const r = await scanOpportunities();
-      toast.success(`Scanned ${r.properties} properties: ${r.created} new, ${r.updated} refreshed, ${r.findings} findings`);
+      const r = await runScan();
       await load();
+      if (r.created > 0) setScanResult(r);
+      else toast.info(noNewSummary(r));
+      if (r.failed > 0 && r.created === 0) toast.warning(`${plural(r.failed, "property", "properties")} could not be scanned; try again later.`);
     } catch (err) {
-      toast.error(errorMessage(err));
+      // never a success modal on failure; the button is usable again for a retry
+      toast.error(`Scan failed: ${errorMessage(err)}`);
     } finally {
+      scanning.current = false;
       setBusy(null);
+    }
+  };
+
+  const onAssigned = async (r: ScanAssignmentResult) => {
+    await load();
+    if (r.conflicts.length === 0 && r.skipped.length === 0) {
+      toast.success(assignmentSummary(r));
+      setScanResult(null);
+    } else {
+      // the modal stays open with the conflicts listed
+      toast.warning(assignmentSummary(r));
     }
   };
 
@@ -123,7 +147,7 @@ export default function OpportunitiesPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Opportunities</h1>
           <p className="mt-1 text-sm text-muted">Evidence-backed SEO work from your Search Console data. Findings are measured changes or heuristics, never diagnosed causes.</p>
         </div>
-        <Button variant="secondary" onClick={scan} disabled={busy === "scan" || data?.scanning}>
+        <Button ref={scanButton} variant="secondary" onClick={scan} disabled={busy === "scan" || data?.scanning}>
           <RefreshCw className={`h-4 w-4 ${busy === "scan" || data?.scanning ? "animate-spin" : ""}`} aria-hidden />
           {busy === "scan" || data?.scanning ? "Scanning…" : "Scan now"}
         </Button>
@@ -266,6 +290,7 @@ export default function OpportunitiesPage() {
           />
         </div>
       )}
+      {scanResult && <ScanResultsDialog result={scanResult} users={users} propertyName={propertyName} onClose={() => setScanResult(null)} onAssigned={onAssigned} returnFocus={scanButton} />}
     </AppShell>
   );
 }

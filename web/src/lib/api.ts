@@ -2,6 +2,7 @@ import axios, { AxiosError } from "axios";
 import type { PageSize } from "./pagination";
 import { announceSignOut } from "./authSync";
 import { clearStoredFilters } from "./persistedFilter";
+import { pollScan } from "./scanResults";
 import type {
   AuthResponse,
   FleetOverview,
@@ -28,6 +29,8 @@ import type {
   WebhookRow,
   OpportunityDetail,
   OpportunityList,
+  ScanAssignmentResult,
+  ScanJob,
   PropertyDetail,
   RuleConfig,
   SavedView,
@@ -279,15 +282,25 @@ export const logPromptCopied = (
     .post<void>(`/opportunities/${id}/prompt-copied`, body)
     .then(() => undefined);
 
-export const scanOpportunities = () =>
+/** MISS-0203: manual scan in the background, polled to the end (no proxy timeout). */
+export const startScan = () =>
+  api.post<ScanJob>("/opportunities/scan/start").then((r) => r.data);
+export const getScanJob = (scanId: string) =>
   api
-    .post<{
-      properties: number;
-      created: number;
-      updated: number;
-      findings: number;
-      skipped: number;
-    }>("/opportunities/scan")
+    .get<ScanJob>(`/opportunities/scan/${encodeURIComponent(scanId)}`)
+    .then((r) => r.data);
+export const runScan = () => pollScan(startScan, getScanJob);
+
+/** MISS-0203: assign the groups chosen in the post-scan modal; never reruns the scan. */
+export const assignScanResults = (
+  scanId: string,
+  groups: { assignee_id: number; ids: number[] }[],
+) =>
+  api
+    .post<ScanAssignmentResult>(
+      `/opportunities/scan/${encodeURIComponent(scanId)}/assign`,
+      { groups },
+    )
     .then((r) => r.data);
 
 export const getRules = () =>

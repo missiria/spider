@@ -7,17 +7,21 @@ import { readStored, writeStored } from "@/lib/persistedFilter";
 const listOpportunities = vi.fn();
 const getProperties = vi.fn();
 const listUsers = vi.fn();
+const scanOpportunities = vi.fn();
+const assignScanResults = vi.fn();
 vi.mock("@/lib/api", () => ({
   listOpportunities: (...a: unknown[]) => listOpportunities(...a),
   getProperties: (...a: unknown[]) => getProperties(...a),
   listUsers: (...a: unknown[]) => listUsers(...a),
-  scanOpportunities: vi.fn(),
+  runScan: (...a: unknown[]) => scanOpportunities(...a),
+  assignScanResults: (...a: unknown[]) => assignScanResults(...a),
   updateOpportunity: vi.fn(),
   errorMessage: (e: unknown) => String(e),
 }));
 vi.mock("@/components/AppShell", () => ({ AppShell: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
-vi.mock("react-toastify", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
+vi.mock("react-toastify", () => ({ toast }));
 
 import OpportunitiesPage from "./page";
 
@@ -174,5 +178,164 @@ describe("Opportunities list is paged (MISS-0197)", { timeout: 30_000 }, () => {
     render(<OpportunitiesPage />);
     await screen.findByText("1–10 of 478");
     expect(lastPaging()).toEqual({ page: 1, page_size: 10 });
+  });
+});
+
+describe("post-scan assignment modal (MISS-0203)", () => {
+  const SCAN = {
+    scan_id: "6f1c1a52-5f43-4b8e-9d1e-0a3c5a6b7c8d",
+    properties: 2,
+    failed: 0,
+    created: 4,
+    updated: 5,
+    reopened: 1,
+    findings: 10,
+    skipped: 0,
+    new_items: [
+      { id: 11, property_id: 3, rule: "clicks_drop", subject: "page", key_text: "https://a.test/x", priority: "high", title: "Clicks drop on /x" },
+      { id: 12, property_id: 3, rule: "clicks_drop", subject: "page", key_text: "https://a.test/y", priority: "high", title: "Clicks drop on /y" },
+      { id: 13, property_id: 4, rule: "low_ctr", subject: "query", key_text: "iptv", priority: "medium", title: "Low CTR on iptv" },
+      { id: 14, property_id: 4, rule: "near_page_one", subject: "query", key_text: "lion", priority: "low", title: "Near page one: lion" },
+    ],
+  };
+  const scanButton = () => screen.getByRole("button", { name: /scan now/i });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+    listOpportunities.mockResolvedValue(EMPTY);
+    getProperties.mockResolvedValue({ items: [{ id: 3, display_name: "a.test" }, { id: 4, display_name: "b.test" }] });
+    listUsers.mockResolvedValue({ items: [{ id: 2, name: "Ada" }, { id: 5, name: "Bob" }] });
+  });
+  afterEach(cleanup);
+
+  it("opens once after the scan with the exact total, priority groups, rule breakdown and labelled selectors", async () => {
+    scanOpportunities.mockResolvedValue(SCAN);
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    const dialog = await screen.findByRole("dialog", { name: "New opportunities" });
+    expect(dialog.textContent).toContain("4 new items");
+    expect(dialog.textContent).toContain("5 refreshed and 1 reopened: not included below");
+    expect(screen.getByLabelText("Assign High priority items to")).toBeTruthy();
+    expect(screen.getByLabelText("Assign Medium priority items to")).toBeTruthy();
+    expect(screen.getByLabelText("Assign Low priority items to")).toBeTruthy();
+    expect(dialog.textContent).toContain("Clicks drop · 2");
+    expect(scanOpportunities).toHaveBeenCalledTimes(1);
+    // the list was reloaded after the scan
+    expect(listOpportunities.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // a group's items can be viewed
+    fireEvent.click(screen.getAllByRole("button", { name: /view items/i })[0]);
+    expect(screen.getByRole("link", { name: "Clicks drop on /y" }).getAttribute("href")).toBe("/opportunities/12");
+  });
+
+  it("assigns only the groups with a member chosen, then refreshes and closes", async () => {
+    scanOpportunities.mockResolvedValue(SCAN);
+    assignScanResults.mockResolvedValue({ assigned: [{ id: 11, assignee_id: 5 }, { id: 12, assignee_id: 5 }], unchanged: [], conflicts: [], skipped: [] });
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    await screen.findByRole("dialog");
+    expect((screen.getByRole("button", { name: /assign selected groups/i }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Assign High priority items to"), { target: { value: "5" } });
+    const reloads = listOpportunities.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Assign selected groups (2)" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(assignScanResults).toHaveBeenCalledWith(SCAN.scan_id, [{ assignee_id: 5, ids: [11, 12] }]);
+    expect(listOpportunities.mock.calls.length).toBeGreaterThan(reloads);
+    expect(toast.success).toHaveBeenCalledWith("2 opportunities assigned");
+    expect(scanOpportunities).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the modal open on a conflict and lists who holds the item", async () => {
+    scanOpportunities.mockResolvedValue(SCAN);
+    assignScanResults.mockResolvedValue({ assigned: [{ id: 11, assignee_id: 5 }], unchanged: [], conflicts: [{ id: 12, assignee_id: 2 }], skipped: [] });
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    await screen.findByRole("dialog");
+    fireEvent.change(screen.getByLabelText("Assign High priority items to"), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: /assign selected groups/i }));
+    await screen.findByText("Clicks drop on /y: kept with Ada");
+    expect(toast.warning).toHaveBeenCalledWith("1 opportunity assigned · 1 already assigned by someone else (kept)");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("a failed save can be retried without rescanning", async () => {
+    scanOpportunities.mockResolvedValue(SCAN);
+    assignScanResults.mockRejectedValueOnce("network down").mockResolvedValueOnce({ assigned: [{ id: 14, assignee_id: 2 }], unchanged: [], conflicts: [], skipped: [] });
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    await screen.findByRole("dialog");
+    fireEvent.change(screen.getByLabelText("Assign Low priority items to"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: /assign selected groups/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry assignment" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(assignScanResults).toHaveBeenCalledTimes(2);
+    expect(assignScanResults.mock.calls[1]).toEqual(assignScanResults.mock.calls[0]);
+    expect(scanOpportunities).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape and Not now close without assigning; focus returns to Scan now", async () => {
+    scanOpportunities.mockResolvedValue(SCAN);
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(scanButton());
+    fireEvent.click(scanButton());
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(assignScanResults).not.toHaveBeenCalled();
+  });
+
+  it("Tab stays inside the dialog", async () => {
+    scanOpportunities.mockResolvedValue(SCAN);
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    const dialog = await screen.findByRole("dialog");
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(close);
+  });
+
+  it("a scan with nothing new shows a message, never an empty modal", async () => {
+    scanOpportunities.mockResolvedValue({ ...SCAN, created: 0, new_items: [] });
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Scan complete: no new opportunities across 2 properties · 5 refreshed · 1 reopened"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a failed scan shows an error, no modal, and the button works again", async () => {
+    scanOpportunities.mockRejectedValueOnce("A scan is already running");
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    const button = scanButton();
+    fireEvent.click(button);
+    fireEvent.click(button); // double click: one request
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Scan failed: A scan is already running"));
+    expect(scanOpportunities).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect((scanButton() as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("without members the selectors are disabled and the items stay unassigned", async () => {
+    listUsers.mockResolvedValue({ items: [] });
+    scanOpportunities.mockResolvedValue(SCAN);
+    render(<OpportunitiesPage />);
+    await screen.findByRole("option", { name: "a.test" });
+    fireEvent.click(scanButton());
+    await screen.findByText(/No members to assign to/);
+    expect((screen.getByLabelText("Assign High priority items to") as HTMLSelectElement).disabled).toBe(true);
   });
 });
