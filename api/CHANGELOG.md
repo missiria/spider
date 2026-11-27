@@ -1,0 +1,44 @@
+# Changelog
+
+## [0.1.0](https://github.com/missiria/spider/compare/api-v0.0.1...api-v0.1.0) (2026-11-27)
+
+
+### Features
+
+* **admin:** MISS-0124 super-admin dashboard at /x-dashboard ([1412376](https://github.com/missiria/spider/commit/1412376486d869363f2e45a911ff191ad1ec8347))
+* **api:** auth, workspaces, properties with GSC access checker, sync and overview modules ([f123a22](https://github.com/missiria/spider/commit/f123a22b5a9ddfd576c25a14f3bd4ec30d500ca6))
+* **api:** dimensional dataset — daily rows per query, page, country, device and search appearance (MISS-0091) ([6d9aa3c](https://github.com/missiria/spider/commit/6d9aa3c6e74e029e8e090ad81a32c286090399c2))
+* **api:** MISS-0129 anonymous aggregate stats at GET /public/stats ([9be98ca](https://github.com/missiria/spider/commit/9be98cae6e86ce96dc10734f7c1844ce68199cda))
+* **auth:** MISS-0116 sign-up with approval, password reset, redesigned auth pages ([130f3a8](https://github.com/missiria/spider/commit/130f3a897f6004fb1bc60e2c43c624a67e9c7c7c))
+* **branding:** MISS-0126 link MISSIRIA social profiles from auth pages and every email ([#1](https://github.com/missiria/spider/issues/1)) ([53deeec](https://github.com/missiria/spider/commit/53deeecd530a4a91a33342f0a4c3eff4a3291635))
+* custom date range, server-side regex filters and saved views (MISS-0092) ([2a535a1](https://github.com/missiria/spider/commit/2a535a11cefa601e70ae01234f8cf1f74dbf4f1c))
+* **email:** MISS-0121 branded email layout and super-admin email CMS ([ea79630](https://github.com/missiria/spider/commit/ea796307513893e311534f169d4232413bd6339f))
+* general settings (profile, theme), sortable top tables, collapsible sidebar ([e71e785](https://github.com/missiria/spider/commit/e71e78549a90655b255e1713ae85171223395332))
+* **indexing:** critical reasons in red, Request-indexing links, fleet charts, wider URL tracking (MITP-0833) ([6b7a1b7](https://github.com/missiria/spider/commit/6b7a1b7b591ee07dd67496c80a0e82541578d044))
+* **indexing:** grouped sitemap findings, automatic data in reports, status icons (MISS-0192, MISS-0193) ([e0f36f3](https://github.com/missiria/spider/commit/e0f36f3c3038c1a4aa870b6998d3391320f70e48))
+* **indexing:** opportunities from the Why pages aren't indexed reasons (MISS-0194) ([f4092ad](https://github.com/missiria/spider/commit/f4092ad91dbac5a798e1c827b5236b27aeee330f))
+* **indexing:** Page indexing area — imports, URL Inspection, opportunities, reports (MITP-0833) ([d0d2565](https://github.com/missiria/spider/commit/d0d2565531b3fe7254a2fd1726a5e22b75ca2cdf))
+* **indexing:** Search Console style report from URL Inspection, refresh all, parallel inspections (MITP-0833) ([deb5eac](https://github.com/missiria/spider/commit/deb5eac0c68cc6007e7126302978b284ad82e936))
+* **opportunities:** Copy AI prompt button with preview, variants and EN/FR (MISS-0190) ([78c5dc9](https://github.com/missiria/spider/commit/78c5dc9447ab6d4297aece9542be5ea2bd759913))
+* **opportunities:** email workspace members when an opportunity is marked done (MISS-0198) ([38c0d3e](https://github.com/missiria/spider/commit/38c0d3eba66510e71228a9ac49090a303cbe8386))
+* **opportunities:** paginate the list with 10/50/250 rows per page (MISS-0197) ([902dd53](https://github.com/missiria/spider/commit/902dd53d7147583624ce3cd537b0a0920de179be))
+* **opportunities:** post-scan modal to assign new findings by priority (MISS-0203) ([f3e491b](https://github.com/missiria/spider/commit/f3e491bb6aa22d92a527d20e5863e3ad5512228e))
+* **opportunities:** weekly opportunities email for workspace admins (MISS-0196) ([#5](https://github.com/missiria/spider/issues/5)) ([16d8f39](https://github.com/missiria/spider/commit/16d8f3947865a696ce731c9ee15905267c3c3906))
+* Opportunity Inbox — rules, scan, tracking, audit history, before/after (MISS-0093) ([3fe0403](https://github.com/missiria/spider/commit/3fe04034633af610a54412912ea83323997afc48))
+* **properties:** Export menu on the property page tables (MISS-0171) ([dd5be52](https://github.com/missiria/spider/commit/dd5be52809ecf3571d34187fff5514650af75303))
+* **property:** GSC-style pagination with 10/50/250 rows per page (MISS-0195) ([#4](https://github.com/missiria/spider/issues/4)) ([cc58219](https://github.com/missiria/spider/commit/cc58219c3d9024dd9e03f1228c052a1f3cdf2810))
+* reports, schedules, alerts and signed webhooks (MISS-0094) ([7d027fb](https://github.com/missiria/spider/commit/7d027fb160c26c473f45b7cf5c99f8300835c564))
+* **reports:** MISS-0135 export menu, copy, and entity-branded PDF ([e5b5730](https://github.com/missiria/spider/commit/e5b573044502e9787b0e26afe7c573a681d8fa81))
+* security hardening, integration + E2E tests, CI, ops run-book (MISS-0095) ([43bf78f](https://github.com/missiria/spider/commit/43bf78f95e699b3b0a8bb4cf6664242b90b34635))
+
+
+### Bug Fixes
+
+* **api:** read DATE columns as strings, never crash on a failed sync, public health endpoint ([f419002](https://github.com/missiria/spider/commit/f4190029c6def6c1443b4ed0b7f61dd9aac54f53))
+* **auth:** MISS-0116 confirm signup email, bind account links, close ?next bypass ([6aeabda](https://github.com/missiria/spider/commit/6aeabda2451c3d4e4fc3d275ee4a9e2206b4027e))
+* **auth:** MISS-0116 confirm signup with its password, cap before overwrite, stricter ?next ([e628aee](https://github.com/missiria/spider/commit/e628aeeea2a3e63603ba31b97a57303985e95ac6))
+* **auth:** per-session presence and real sign-out (MISS-0199) ([cd74133](https://github.com/missiria/spider/commit/cd741337681c77781894e0895a630ff59bf0756a))
+* **email:** only the app's own links become buttons or anchors (MISS-0121) ([70ca36c](https://github.com/missiria/spider/commit/70ca36cfe4c021929483da62eeca43ec5c7c2fa2))
+* MISS-0110 session revocation, tenant isolation, sync correctness, consistent filters ([42ea51b](https://github.com/missiria/spider/commit/42ea51bfd40f2298b947a528f3c995bbb8fbb85c))
+* **security:** SSRF guard with DNS pinning, SMTP TLS verification on, trusted client IP + per-account login lock ([b1f9d21](https://github.com/missiria/spider/commit/b1f9d21b9957afcc070756a61219bde9e280cf81))
+* **security:** trust only nginx-set X-Real-IP, byte-level IPv6 SSRF classifier, lockout per account+IP ([4b3180c](https://github.com/missiria/spider/commit/4b3180c4232c6bd8b1203bd2672303f5abd2b695))
